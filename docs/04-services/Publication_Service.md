@@ -139,4 +139,4 @@ Publication Service строится на следующих принципах:
 
 ## Связь с другими документами
 
-Предметная модель определяется документом [Publication_Model.md](../02-domain/Publication_Model.md). Физическая модель определяется документом [Physical_Model.md](../03-database/Physical_Model.md). Алгоритм выполнения публикации определяется документом [Publication_FSM.md](Publication_FSM.md). Формат рабочего каталога определяется документом [Catalog_Template.md](../02-domain/Catalog_Template.md). REST API публикации определяется документом [REST_API.md](REST_API.md).
+Предметная модель определяется документом [Publication_Model.md](../02-domain/Publication_Model.md). Физическая модель определяется документом [Physical_Model.md](../03-database/Physical_Model.md). Алгоритм выполнения публикации определяется документом [Publication_Workflow.md](Publication_Workflow.md). Формат рабочего каталога определяется документом [Catalog_Template.md](../02-domain/Catalog_Template.md). REST API публикации определяется документом [REST_API.md](REST_API.md).
