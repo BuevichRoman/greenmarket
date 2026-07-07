@@ -48,8 +48,7 @@ REST API первого этапа состоит из следующих раз
 
 Используется Seller Cabinet.
 
-- `POST /api/v1/publications` — создание публикации (Excel-файл + `publication_key`). Ответ: идентификатор публикации, результат проверки.
-- `GET /api/v1/publications/{id}` — состояние публикации: статус, ошибки, дата создания.
+- `POST /api/v1/publications` — создание публикации (Excel-файл + `publication_key`). Публикация выполняется синхронно; ответ содержит либо успешный результат, либо список ошибок валидации (`422`).
 - `GET /api/v1/publications` — история публикаций продавца.
 
 ## Seller API
@@ -125,4 +124,4 @@ REST API первого этапа состоит из следующих раз
 
 ## Связь с другими документами
 
-Предметная модель определяется документом [Domain_Model.md](../02-domain/Domain_Model.md). Процесс публикации определяется документом [Publication_Service.md](Publication_Service.md). Конечный автомат публикации определяется документом [Publication_FSM.md](Publication_FSM.md). Пользовательские сценарии определяются документами [Buyer_MVP.md](../05-ui/Buyer_MVP.md), [Seller_MVP.md](../05-ui/Seller_MVP.md) и [Admin_MVP.md](../05-ui/Admin_MVP.md).
+Предметная модель определяется документом [Domain_Model.md](../02-domain/Domain_Model.md). Процесс публикации определяется документом [Publication_Service.md](Publication_Service.md). Алгоритм выполнения публикации определяется документом [Publication_FSM.md](Publication_FSM.md). Пользовательские сценарии определяются документами [Buyer_MVP.md](../05-ui/Buyer_MVP.md), [Seller_MVP.md](../05-ui/Seller_MVP.md) и [Admin_MVP.md](../05-ui/Admin_MVP.md).
