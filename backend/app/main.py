@@ -1,4 +1,9 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
+
+from app.infrastructure.database import get_session
 
 app = FastAPI(
     title="GreenMarket Backend",
@@ -7,5 +12,10 @@ app = FastAPI(
 
 
 @app.get("/health")
-def health():
-    return {"status": "UP"}
+def health(session: Session = Depends(get_session)):
+    try:
+        session.execute(text("SELECT 1"))
+    except OperationalError as exc:
+        detail = str(exc.orig) if exc.orig else str(exc)
+        return {"status": "DOWN", "database": detail}
+    return {"status": "UP", "database": "UP"}
