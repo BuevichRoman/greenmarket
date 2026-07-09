@@ -2,5 +2,12 @@
 .claude/settings.local.json
 kwork/
 *.zip
+*.html
 CLAUDE.md
 DIAGONST/
+platform_core/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
