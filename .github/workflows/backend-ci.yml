@@ -13,6 +13,22 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.36
+        env:
+          MYSQL_ROOT_PASSWORD: greenmarket_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pgreenmarket_ci"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: greenmarket
+      DB_USER: root
+      DB_PASSWORD: greenmarket_ci
     defaults:
       run:
         working-directory: backend
@@ -24,6 +40,16 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
+
+      - name: Apply schema (platform stub + migrations + seeders)
+        run: |
+          mysql -h127.0.0.1 -uroot -pgreenmarket_ci < tests/fixtures/platform_stub.sql
+          for f in ../database/migrations/00{1,2,3,4,5,6}_*.sql; do
+            mysql -h127.0.0.1 -uroot -pgreenmarket_ci greenmarket < "$f"
+          done
+          for f in ../database/seeders/00{1,2}_*.sql; do
+            mysql -h127.0.0.1 -uroot -pgreenmarket_ci greenmarket < "$f"
+          done
 
       - name: Run tests
         run: uv run pytest
