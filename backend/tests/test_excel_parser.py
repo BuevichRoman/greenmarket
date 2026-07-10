@@ -122,3 +122,28 @@ def test_parses_empty_sheet_without_error(tmp_path):
 
     assert result.sheets[0].name == "Каталог"
     assert result.sheets[0].rows == []
+
+
+def test_chartsheet_does_not_leak_raw_exception(tmp_path):
+    from openpyxl import Workbook
+    from openpyxl.chart import BarChart, Reference
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Данные"
+    for value in (1, 2, 3):
+        sheet.append([value])
+
+    chart = BarChart()
+    chart.add_data(Reference(sheet, min_col=1, min_row=1, max_row=3))
+    chartsheet = workbook.create_chartsheet("График")
+    chartsheet.add_chart(chart)
+
+    path = tmp_path / "with_chartsheet.xlsx"
+    workbook.save(path)
+
+    result = ExcelParser().parse(path)
+
+    assert [sheet.name for sheet in result.sheets] == ["Данные", "График"]
+    assert result.sheets[0].rows == [[1], [2], [3]]
+    assert result.sheets[1].rows == []
