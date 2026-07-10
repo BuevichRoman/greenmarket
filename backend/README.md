@@ -1,7 +1,8 @@
 # GreenMarket Backend
 
 PR-001 — Bootstrap. PR-002 — Database Infrastructure. PR-003 — Parser.
-Без бизнес-логики (Publication Service/Validator/Matcher/REST API — следующие PR).
+PR-004 — Validator. Без бизнес-логики (Publication Service/Matcher/REST API —
+следующие PR).
 
 ## MySQL
 
@@ -57,6 +58,12 @@ mock, как в ТЗ PR-002): ищет товар по имени (без зах
 поднятую и наполненную БД (см. выше). В CI это делает
 `.github/workflows/backend-ci.yml` перед прогоном тестов.
 
+`tests/test_seller_gateway.py`/`test_business_validator.py`/`test_validator.py`
+(частично) — тоже на реальной БД: вставляют тестовую строку `Seller` внутри
+той же сессии без `commit()`, читают её обратно через `SellerGateway`; фикстура
+`session` (см. `tests/conftest.py`) закрывает сессию без коммита в `finally` —
+транзакция откатывается сама, БД не засоряется тестовыми продавцами.
+
 ## Структура
 
 ```
@@ -73,6 +80,14 @@ backend/
 │   │   ├── raw_workbook.py  — RawWorkbook/RawSheet (внутреннее представление)
 │   │   ├── exceptions.py    — ParserError, ExcelParserError
 │   │   └── excel_parser.py  — ExcelParser: .xlsx → RawWorkbook
+│   ├── validation/      — проверка RawWorkbook против правил GreenMarket (PR-004)
+│   │   ├── errors.py             — ValidationError, ValidationResult
+│   │   ├── structure_validator.py — обязательные листы/колонки/версия шаблона
+│   │   ├── semantic_validator.py  — значения строк «Каталог» (нужны репозитории PR-002)
+│   │   ├── business_validator.py  — PublicationKey, дедуп SellerProductId
+│   │   └── validator.py           — оркестратор Structure → Semantic + Business
+│   ├── platform/        — Anti-Corruption Layer к платформенным данным (PR-004)
+│   │   └── seller_gateway.py — SellerGateway: читает Seller напрямую (не ORM)
 │   ├── core/           — конфигурация приложения
 │   └── main.py
 └── tests/
@@ -100,6 +115,84 @@ backend/
   исключение `ExcelParserError` (наследник общего `ParserError`) — вызывающий
   код (`Publication Service`) сможет ловить `ParserError`, не зная формат
   источника, когда появятся `CSVParser`/`JSONParser`.
+
+## Validator (PR-004)
+
+`Validator.validate(workbook, seller_id) -> ValidationResult` проверяет
+`RawWorkbook` (из PR-003) против правил GreenMarket в три уровня (см.
+`kwork/timeline.md`, п.37 — согласовано с коллегой):
+
+- **`StructureValidator`** — форма документа против контракта **Excel
+  Template v1.0** (согласован с коллегой, `kwork/timeline.md`, п.38):
+  обязательные листы, точные заголовки и порядок колонок листов «Каталог» /
+  «Товарные группы» / «Товарные позиции», обязательные поля `_System`,
+  поддерживаемая версия шаблона (`DocumentVersion`). Лист «Инструкция» —
+  свободный текст, структура не проверяется.
+- **`SemanticValidator`** — построчные значения листа «Каталог»: обязательные
+  поля не пусты, `Цена`/`Остаток` — неотрицательные числа, `Товарная группа
+  GreenMarket`/`Товарная позиция GreenMarket` существуют в справочниках
+  (через `ProductGroupRepository`/`ProductRepository` из PR-002; `Прочее` —
+  разрешённое значение позиции, не требует существования в `Product`).
+- **`BusinessValidator`** — актуальность `PublicationKey` (через
+  `SellerGateway`) и отсутствие дублей `SellerProductId` внутри каталога.
+
+`Validator` (оркестратор): если `StructureValidator` вернул ошибки —
+`SemanticValidator`/`BusinessValidator` не запускаются (ошибки по
+несуществующим колонкам были бы шумом). Если структура валидна — оба
+запускаются, ошибки собираются в один список, **не fail-fast**
+(`Publication_Service.md`: «Ошибки собираются в единый отчёт»).
+
+**`SellerGateway`** (`app/platform/`) — Anti-Corruption Layer к `Seller`
+(предложено коллегой, `kwork/timeline.md`, п.38): `Seller` намеренно не
+смаплен как ORM-модель (GreenMarket им не владеет, см. `models.py`), поэтому
+`get_current_publication_key(seller_id)`/`get_current_catalog_hash(seller_id)`
+читают его напрямую (`session.execute(text(...))`). Если источник платформенных
+данных сменится (REST/gRPC API вместо прямого доступа к БД), меняется только
+этот файл — `Validator` не знает, откуда пришли данные.
+
+## Отклонения и допущения PR-004
+
+- **Проверка целостности `CatalogHash` не реализована.** `Catalog_Template.md`
+  требует проверять «целостность документа (CatalogHash)», миграция
+  `005_create_catalog_publications.sql` фиксирует алгоритм как SHA-256, но
+  область хеширования (какие именно байты/поля документа хешируются,
+  исключая сам `CatalogHash`, чтобы не было циклической зависимости) нигде не
+  специфицирована. Реализовывать это без согласования с коллегой рискованно —
+  будущий генератор документа в Publication Service должен считать хеш
+  идентичным образом, иначе валидный документ будет отклоняться. Оставлено
+  как открытый вопрос для следующего согласования.
+- **Проверка ссылок на фотографии не реализована.** `Publication_Service.md`
+  упоминает «ссылки на фотографии» как часть валидации данных, но
+  утверждённый Excel Template v1.0 (`kwork/timeline.md`, п.38) не содержит
+  колонки для фото в листе «Каталог» — фотографии, по всей видимости,
+  загружаются отдельным механизмом вне этого шаблона. Добавлять проверку
+  несуществующей колонки было бы домыслом.
+- **`SemanticValidator`/`BusinessValidator`/`Validator` не производят типизированное
+  представление для будущего Mapper (PR-005)** — только `ValidationResult`
+  (список ошибок). Design PR-005 ещё не согласован; заранее придумывать его
+  входной контракт было бы преждевременно (YAGNI) — при необходимости Mapper
+  сможет сам привести значения к нужному виду, опираясь на уже проверенный
+  `RawWorkbook`.
+- **`seller_id` передаётся в `Validator`/`BusinessValidator` явным параметром**,
+  не читается из `_System` — в согласованном контракте `_System` нет поля с
+  идентификатором продавца (там только `DocumentId`/`DocumentVersion`/
+  `PublicationKey`/`GeneratedAt`/`GeneratedBy`/`CatalogHash`). Это и корректнее
+  с точки зрения безопасности: `Catalog_Template.md` прямо требует не
+  доверять служебным данным файла без проверки — идентификатор продавца
+  должен приходить из аутентифицированного контекста запроса (будущий
+  Publication Service), а не из содержимого файла.
+- **Точный заголовок листа «Каталог» проверяется для всех 9 колонок в фиксированном
+  порядке, включая необязательные** (`SellerProductId`, `Товарная позиция
+  GreenMarket`, `Описание`, `Дополнительные характеристики`) — «необязательность»
+  из Excel Template v1.0 трактуется как допустимость пустого *значения* в
+  строке данных, а не как разрешение опускать саму колонку из заголовка
+  (иначे порядок колонок терял бы смысл для необязательной колонки в середине
+  списка, например «Товарная позиция GreenMarket» перед «Цена»). Если коллега
+  имел в виду не это — нужно уточнить отдельно.
+- **`_System` читается как список пар (поле, значение) по первым двум ячейкам
+  каждой строки** — точный построчный формат этого листа коллега не прислал
+  (только список полей), это разумное дефолтное предположение для
+  key-value-листа, не проверенное отдельно.
 
 ## Отклонения от присланного ТЗ PR-003
 
