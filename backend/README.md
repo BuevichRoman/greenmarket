@@ -1,7 +1,7 @@
 # GreenMarket Backend
 
-PR-001 — Bootstrap. PR-002 — Database Infrastructure. Без бизнес-логики
-(Publication Service/Parser/Validator/Matcher/REST API — следующие PR).
+PR-001 — Bootstrap. PR-002 — Database Infrastructure. PR-003 — Parser.
+Без бизнес-логики (Publication Service/Validator/Matcher/REST API — следующие PR).
 
 ## MySQL
 
@@ -69,10 +69,50 @@ backend/
 │   │   ├── database.py    — engine, SessionLocal, Base, get_session()
 │   │   ├── models.py      — ORM-модели существующих таблиц (Database First)
 │   │   └── repositories/  — явные репозитории (без GenericRepository)
+│   ├── parsing/         — чтение источников каталога в RawWorkbook (PR-003)
+│   │   ├── raw_workbook.py  — RawWorkbook/RawSheet (внутреннее представление)
+│   │   ├── exceptions.py    — ParserError, ExcelParserError
+│   │   └── excel_parser.py  — ExcelParser: .xlsx → RawWorkbook
 │   ├── core/           — конфигурация приложения
 │   └── main.py
 └── tests/
 ```
+
+## Parser (PR-003)
+
+`ExcelParser.parse(path) -> RawWorkbook` читает `.xlsx` в внутреннее представление
+(`RawWorkbook.source` + список `RawSheet(name, index, rows)`). Parser не знает
+ничего о правилах GreenMarket — не проверяет обязательные листы/колонки/версию
+шаблона (это `Validator`, PR-004), не типизирует и не валидирует значения ячеек
+(`Semantic`/`Business Validation`, тоже PR-004). Он только читает данные как есть.
+
+**Принципы (см. `kwork/timeline.md`, п.37 — согласовано с коллегой):**
+
+- **Детерминированность.** Один и тот же файл → всегда один и тот же
+  `RawWorkbook`. Formulas читаются `data_only=False` (сырая формула-строка, не
+  закэшированное значение — оно зависит от того, когда файл в последний раз
+  пересчитывался в Excel).
+- **Ничего не терять.** Пустые строки/колонки, скрытые листы, значения
+  смёрженных ячеек (кроме top-left — по семантике `.xlsx` только он несёт
+  значение) — Parser их не отбрасывает и не домысливает, решение об
+  интерпретации принимают более поздние слои.
+- **Единый тип ошибки.** Любая ошибка чтения (битый файл, не `.xlsx`) → одно
+  исключение `ExcelParserError` (наследник общего `ParserError`) — вызывающий
+  код (`Publication Service`) сможет ловить `ParserError`, не зная формат
+  источника, когда появятся `CSVParser`/`JSONParser`.
+
+## Отклонения от присланного ТЗ PR-003
+
+- **Excel-комментарии (`cell.comment`) и форматирование ячеек не захватываются**
+  в `RawWorkbook`, хотя коллега предлагал ничего не терять вплоть до
+  комментариев. `docs/02-domain/Catalog_Template.md` не описывает комментарии
+  как часть модели рабочего каталога — добавление их сейчас раздувает
+  представление без обоснованной необходимости на Stage 1 (Keep MVP Small,
+  Simplicity Before Flexibility). Если понадобится — отдельное решение
+  отдельным PR.
+- **`CsvParserError`/`JsonParserError` не заведены** — коллега предлагал сразу
+  расширить иерархию исключений под будущие форматы; этих парсеров ещё нет,
+  заводить исключения под них преждевременно.
 
 ## Отклонения от исходной спецификации PR-001
 
