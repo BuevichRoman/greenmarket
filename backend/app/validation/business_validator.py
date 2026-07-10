@@ -33,16 +33,21 @@ class BusinessValidator:
         if system_sheet is None:
             return []
 
-        document_key = next((row[1] for row in system_sheet.rows if row and row[0] == "PublicationKey"), None)
-        if document_key is None:
-            return []
-
-        current_key = self.seller_gateway.get_current_publication_key(seller_id)
-        if document_key != current_key:
+        document_key = next(
+            (row[1] if len(row) > 1 else None for row in system_sheet.rows if row and row[0] == "PublicationKey"),
+            None,
+        )
+        # Пустое/отсутствующее значение так же недействительно, как несовпадающее —
+        # сервер не должен доверять служебным данным файла без проверки
+        # (Catalog_Template.md, "Защита служебных данных"). StructureValidator уже
+        # гарантирует непустой PublicationKey в оркестрованном потоке (Structure
+        # гейтит Business), но BusinessValidator публичен и может использоваться
+        # отдельно — не должен молча пропускать проверку в этом случае.
+        if not document_key or document_key != self.seller_gateway.get_current_publication_key(seller_id):
             return [
                 ValidationError(
                     sheet=system_sheet.name,
-                    message="PublicationKey устарел или недействителен — скачайте новую редакцию каталога",
+                    message="PublicationKey отсутствует, пуст или устарел — скачайте новую редакцию каталога",
                 )
             ]
         return []

@@ -104,11 +104,18 @@ class StructureValidator:
 
     def _validate_system_sheet(self, sheet: RawSheet) -> list[ValidationError]:
         errors: list[ValidationError] = []
-        values = {row[0]: row[1] for row in sheet.rows if row and row[0] in SYSTEM_FIELDS}
+        values = {row[0]: (row[1] if len(row) > 1 else None) for row in sheet.rows if row and row[0] in SYSTEM_FIELDS}
 
         for field_name in SYSTEM_FIELDS:
+            value = values.get(field_name)
             if field_name not in values:
                 errors.append(ValidationError(sheet=sheet.name, message=f"Отсутствует служебное поле '{field_name}'"))
+            elif value is None or value == "":
+                # Сервер не должен доверять служебным данным файла без проверки
+                # (Catalog_Template.md, "Защита служебных данных") — пустое
+                # значение PublicationKey/CatalogHash и т.п. так же невалидно,
+                # как отсутствующее поле, а не молчаливо пропускается дальше.
+                errors.append(ValidationError(sheet=sheet.name, message=f"Пустое значение служебного поля '{field_name}'"))
 
         version = values.get("DocumentVersion")
         if version is not None and version not in SUPPORTED_TEMPLATE_VERSIONS:

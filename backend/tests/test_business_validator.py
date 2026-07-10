@@ -93,3 +93,28 @@ def test_new_rows_without_seller_product_id_are_not_duplicates(session):
     result = BusinessValidator(SellerGateway(session)).validate(workbook, seller_id)
 
     assert result.is_valid
+
+
+def test_missing_publication_key_field_reports_error(session):
+    seller_id = insert_seller(session, publication_key="key-current")
+    workbook = make_workbook([], publication_key=None)  # лист _System есть, поля PublicationKey — нет
+
+    result = BusinessValidator(SellerGateway(session)).validate(workbook, seller_id)
+
+    assert not result.is_valid
+    assert any("PublicationKey" in e.message for e in result.errors)
+
+
+def test_narrow_system_sheet_does_not_crash(session):
+    seller_id = insert_seller(session, publication_key="key-current")
+    workbook = RawWorkbook(
+        source="test.xlsx",
+        sheets=[
+            RawSheet(name="Каталог", index=0, rows=[CATALOG_HEADER]),
+            RawSheet(name="_System", index=1, rows=[["PublicationKey"]]),  # значение полностью пустое
+        ],
+    )
+
+    result = BusinessValidator(SellerGateway(session)).validate(workbook, seller_id)
+
+    assert not result.is_valid

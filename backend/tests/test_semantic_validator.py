@@ -50,6 +50,18 @@ def test_unknown_product_group_reports_error(session):
     assert any("Несуществующая группа" in e.message for e in result.errors)
 
 
+def test_product_from_a_different_group_reports_error(session):
+    # "Апельсин" реально существует, но под группой "Цитрусовые", не "Овощи" —
+    # идентификация в БД по комбинации ProductGroup + Product
+    # (database/migrations/002_create_products.sql), не по одному имени.
+    workbook = make_workbook([[1, "Апельсины оптом", "Овощи", "Апельсин", 99.5, "кг", 10, "", ""]])
+
+    result = make_validator(session).validate(workbook)
+
+    assert not result.is_valid
+    assert any("Апельсин" in e.message for e in result.errors)
+
+
 def test_unknown_product_reports_error(session):
     workbook = make_workbook([[1, "Апельсины оптом", "Цитрусовые", "Несуществующий товар", 99.5, "кг", 10, "", ""]])
 

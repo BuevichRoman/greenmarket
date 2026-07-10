@@ -47,28 +47,37 @@ class SemanticValidator:
             errors.append(self._required_field_empty(sheet_name, row_number, "Наименование продавца"))
 
         group_name = _cell(row, _COL_PRODUCT_GROUP)
+        group = None
         if not group_name:
             errors.append(self._required_field_empty(sheet_name, row_number, "Товарная группа GreenMarket"))
-        elif self.product_group_repository.find_by_name(group_name) is None:
-            errors.append(
-                ValidationError(
-                    sheet=sheet_name,
-                    row=row_number,
-                    column="Товарная группа GreenMarket",
-                    message=f"Товарная группа '{group_name}' не найдена",
+        else:
+            group = self.product_group_repository.find_by_name(group_name)
+            if group is None:
+                errors.append(
+                    ValidationError(
+                        sheet=sheet_name,
+                        row=row_number,
+                        column="Товарная группа GreenMarket",
+                        message=f"Товарная группа '{group_name}' не найдена",
+                    )
                 )
-            )
 
         product_name = _cell(row, _COL_PRODUCT)
-        if product_name and product_name != _OTHER_PRODUCT_PLACEHOLDER and self.product_repository.find_by_name(product_name) is None:
-            errors.append(
-                ValidationError(
-                    sheet=sheet_name,
-                    row=row_number,
-                    column="Товарная позиция GreenMarket",
-                    message=f"Товарная позиция '{product_name}' не найдена",
+        if product_name and product_name != _OTHER_PRODUCT_PLACEHOLDER and group is not None:
+            # UNIQUE(name) на Product сознательно не используется — идентификация
+            # выполняется комбинацией ProductGroup + Product (см.
+            # database/migrations/002_create_products.sql), поэтому товар ищем
+            # именно в пределах уже найденной группы, а не по имени глобально.
+            products_in_group = {product.name for product in self.product_repository.list_by_group(group.id)}
+            if product_name not in products_in_group:
+                errors.append(
+                    ValidationError(
+                        sheet=sheet_name,
+                        row=row_number,
+                        column="Товарная позиция GreenMarket",
+                        message=f"Товарная позиция '{product_name}' не найдена в группе '{group_name}'",
+                    )
                 )
-            )
 
         errors += self._validate_non_negative_number(sheet_name, row_number, "Цена", _cell(row, _COL_PRICE))
 
