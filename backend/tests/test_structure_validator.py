@@ -125,3 +125,23 @@ def test_instruction_sheet_structure_is_not_checked():
     result = StructureValidator().validate(workbook)
 
     assert result.is_valid
+
+
+def test_empty_publication_key_value_reports_error():
+    rows = [["PublicationKey", None] if row[0] == "PublicationKey" else row for row in SYSTEM_ROWS]
+    workbook = replace_sheet(make_valid_workbook(), "_System", rows)
+
+    result = StructureValidator().validate(workbook)
+
+    assert not result.is_valid
+    assert any("PublicationKey" in e.message for e in result.errors)
+
+
+def test_narrow_system_sheet_does_not_crash():
+    # значение полностью пустое — вся строка шириной 1, не 2
+    rows = [[row[0]] for row in SYSTEM_ROWS]
+    workbook = replace_sheet(make_valid_workbook(), "_System", rows)
+
+    result = StructureValidator().validate(workbook)
+
+    assert not result.is_valid
