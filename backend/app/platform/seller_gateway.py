@@ -28,3 +28,18 @@ class SellerGateway:
             {"seller_id": seller_id},
         ).first()
         return row[0] if row else None
+
+    def update_current_publication(self, seller_id: int, *, publication_key: str, catalog_hash: str, catalog_version: int) -> None:
+        self.session.execute(
+            text(
+                "UPDATE Seller SET current_publication_key = :publication_key, "
+                "current_catalog_hash = :catalog_hash, current_catalog_version = :catalog_version "
+                "WHERE id = :seller_id"
+            ),
+            {
+                "seller_id": seller_id,
+                "publication_key": publication_key,
+                "catalog_hash": catalog_hash,
+                "catalog_version": catalog_version,
+            },
+        )
