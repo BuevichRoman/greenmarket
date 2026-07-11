@@ -1,8 +1,8 @@
 # GreenMarket Backend
 
 PR-001 — Bootstrap. PR-002 — Database Infrastructure. PR-003 — Parser.
-PR-004 — Validator. Без бизнес-логики (Publication Service/Matcher/REST API —
-следующие PR).
+PR-004 — Validator. PR-005 — Mapper. Без бизнес-логики (Publication
+Service/Matcher/REST API — следующие PR).
 
 ## MySQL
 
@@ -88,6 +88,10 @@ backend/
 │   │   └── validator.py           — оркестратор Structure → Semantic + Business
 │   ├── platform/        — Anti-Corruption Layer к платформенным данным (PR-004)
 │   │   └── seller_gateway.py — SellerGateway: читает Seller напрямую (не ORM)
+│   ├── mapping/         — RawWorkbook → PublicationModel (PR-005)
+│   │   ├── errors.py             — MapperError
+│   │   ├── publication_model.py  — PublicationModel/PublicationProduct/PublicationMetadata
+│   │   └── mapper.py             — Mapper: чистое преобразование структуры, без бизнес-логики
 │   ├── core/           — конфигурация приложения
 │   └── main.py
 └── tests/
@@ -152,6 +156,61 @@ backend/
 читают его напрямую (`session.execute(text(...))`). Если источник платформенных
 данных сменится (REST/gRPC API вместо прямого доступа к БД), меняется только
 этот файл — `Validator` не знает, откуда пришли данные.
+
+## Mapper (PR-005)
+
+`Mapper.map(workbook, validation_result, seller_id) -> PublicationModel`
+превращает уже провалидированный `RawWorkbook` во внутреннюю доменную модель
+`PublicationModel`, независимую одновременно от Excel (`openpyxl`) и от
+SQLAlchemy/ORM (задание коллеги, `kwork/timeline.md`, п.41). Pipeline:
+`Parser → RawWorkbook → Validator → Mapper → PublicationModel → Publication
+Service`.
+
+Mapper не принимает бизнес-решений — не обращается к `Repository`,
+`SellerGateway`, не ищет `Product`/`ProductGroup`, не пишет в БД. Все проверки
+уже выполнены `Validator`; если `ValidationResult` содержит ошибки, Mapper
+выбрасывает `MapperError` вместо преобразования — по контракту он вообще не
+должен вызываться в этом случае, обращение к нему при невалидном документе
+считается ошибкой вызывающего кода (Programming Error), а не пользовательской
+ошибкой.
+
+`PublicationProduct` содержит ровно те поля, что перечислены в задании:
+`seller_product_id`, `seller_name`, `product_group_name`, `product_name`,
+`price`, `unit`, `stock`, `description`, `attributes` — построчно из листа
+«Каталог» (те же 9 колонок, что и `CATALOG_COLUMNS` в `structure_validator.py`,
+переиспользуется только порядок, без повторной проверки значений).
+
+## Найдено и исправлено независимым архитектурным ревью PR-005
+
+Тот же процесс, что и для PR-003/PR-004 (`kwork/timeline.md`, п.39): два
+независимых агента-ревьюера (не знавших, кто автор кода), каждый нашёл и
+подтвердил личным воспроизведением до фикса:
+
+- **Строка, нарушающая контракт «Workbook уже провалидирован», роняла Mapper
+  сырым `TypeError`/`ValueError` вместо `MapperError`** — задание прямо
+  требует «Mapper может выбрасывать только MapperError». `_map_row` теперь
+  оборачивает преобразование в `try/except (TypeError, ValueError)` и
+  перевыбрасывает `MapperError` с номером строки.
+- **Текстовые поля (`seller_name`, `unit`, `product_group_name`,
+  `product_name`, `description`, `attributes`) не приводились к `str`** —
+  `SemanticValidator` проверяет `seller_name`/`unit` только на непустоту
+  (`if not value`), поэтому число вроде `777` в ячейке проходит валидацию, но
+  до фикса Mapper пропускал его как `int`, хотя тип поля объявлен `str`.
+  Теперь явно приводится через `str()`/`_to_str_or_none()`.
+- **Индексы колонок каталога были третьей независимой копией** порядка,
+  уже зафиксированного в `CATALOG_COLUMNS` (`structure_validator.py`) и
+  повторённого в `semantic_validator.py`. Теперь `_COL_*` выводятся из
+  `CATALOG_COLUMNS` по имени колонки — драфт шаблона больше не может
+  разойтись с Mapper молча.
+- **Тест на отсутствие зависимости от SQLAlchemy/БД/Gateway был поиском
+  подстроки по исходному тексту** — не поймал бы, например, `from
+  app.infrastructure.models import SellerProduct` (прямой импорт ORM-сущности,
+  не содержащий ни одного из запрещённых слов). Переписан через `ast`-разбор
+  реальных `import`/`from … import …` модуля — проверяет фактический граф
+  импортов, а не текст.
+- **Не было тестов на оба defensive-пути `_find_sheet`** (отсутствующий лист
+  «Каталог»/`_System`), **на нормализацию `"" → None`** и **на согласованность
+  тестовой фикстуры с реальным `StructureValidator`** — добавлены все три.
 
 ## Найдено и исправлено независимым архитектурным ревью PR-003/PR-004
 
@@ -227,6 +286,45 @@ backend/
   каждой строки** — точный построчный формат этого листа коллега не прислал
   (только список полей), это разумное дефолтное предположение для
   key-value-листа, не проверенное отдельно.
+
+## Отклонения и допущения PR-005
+
+- **Точный состав `PublicationMetadata` не был прислан коллегой** — задание
+  описывает `PublicationModel` как `products` + `metadata` без списка полей
+  metadata (в отличие от `PublicationProduct`, где список полей дан явно).
+  Собрана из тех же полей `_System`, что уже проверяет `StructureValidator`
+  (`DocumentId`/`DocumentVersion`/`PublicationKey`/`GeneratedAt`/`GeneratedBy`/
+  `CatalogHash`) плюс `seller_id` явным параметром (тот же принцип, что и в
+  `Validator` — идентификатор продавца не читается из файла, см. «Отклонения
+  и допущения PR-004»). Разумное дефолтное предположение, не проверенное
+  отдельно с коллегой.
+- **`Mapper` выбрасывает `MapperError`, если вызван с невалидным
+  `ValidationResult`**, хотя задание описывает это как ответственность
+  вызывающего кода («Mapper вообще не вызывается»). Добавлена одна защитная
+  проверка на входе — соответствует букве задания («Mapper может выбрасывать
+  только `MapperError` при внутренних нарушениях контракта»), сам факт вызова
+  с невалидным результатом и есть такое нарушение.
+- **`price`/`stock` приводятся к `float`** — `SemanticValidator` уже
+  гарантирует, что это `int`/`float` (не `bool`), но сырое значение из ячейки
+  Excel может быть любым из двух; единое представление типа — часть
+  ответственности Mapper («приводит данные к единому представлению»).
+- **Пустая строка (`""`) в необязательных текстовых полях
+  (`seller_product_id`, `product_name`, `description`, `attributes`)
+  нормализуется в `None`** — тоже часть «нормализации структуры данных»,
+  явно разрешённой заданием.
+- **`price`/`stock` остаются `float`, не `Decimal`.** Найдено независимым
+  ревью (см. ниже): openpyxl отдаёт IEEE `float`, и задание не называет тип
+  явно, но будущая ORM-модель, скорее всего, будет использовать `NUMERIC`.
+  Решение оставлено открытым для согласования с коллегой — конвертация в
+  `Decimal` на границе Mapper тривиальна, если понадобится, но домысливать
+  точность денежного типа без задания рискованно.
+- **Плейсхолдер `"Прочее"` (разрешённое значение «Товарная позиция
+  GreenMarket» без записи в `Product`, см. `SemanticValidator`) проходит через
+  Mapper как обычная строка `product_name="Прочее"`**, без специальной
+  интерпретации — знание о том, что это плейсхолдер, а не название конкретного
+  товара, намеренно не добавлено в Mapper (это уже предметная логика,
+  запрещённая заданием). Publication Service должен будет знать про это
+  значение при обработке.
 
 ## Отклонения от присланного ТЗ PR-003
 
