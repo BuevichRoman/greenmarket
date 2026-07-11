@@ -38,3 +38,17 @@ def test_returns_none_for_missing_seller(session):
     gateway = SellerGateway(session)
     assert gateway.get_current_publication_key(999_999) is None
     assert gateway.get_current_catalog_hash(999_999) is None
+
+
+def test_update_current_publication_overwrites_key_hash_and_version(session):
+    seller_id = insert_seller(session, name="Продавец для обновления", publication_key="old-key", catalog_hash="old-hash")
+    gateway = SellerGateway(session)
+
+    gateway.update_current_publication(seller_id, publication_key="new-key", catalog_hash="new-hash", catalog_version=3)
+
+    assert gateway.get_current_publication_key(seller_id) == "new-key"
+    assert gateway.get_current_catalog_hash(seller_id) == "new-hash"
+    version = session.execute(
+        text("SELECT current_catalog_version FROM Seller WHERE id = :seller_id"), {"seller_id": seller_id}
+    ).scalar()
+    assert version == 3

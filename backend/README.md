@@ -1,8 +1,8 @@
 # GreenMarket Backend
 
 PR-001 — Bootstrap. PR-002 — Database Infrastructure. PR-003 — Parser.
-PR-004 — Validator. PR-005 — Mapper. Без бизнес-логики (Publication
-Service/Matcher/REST API — следующие PR).
+PR-004 — Validator. PR-005 — Mapper. PR-006 — Publication Service (первый
+слой, реально пишущий в БД). Matcher/REST API — следующие PR.
 
 ## MySQL
 
@@ -64,6 +64,16 @@ mock, как в ТЗ PR-002): ищет товар по имени (без зах
 `session` (см. `tests/conftest.py`) закрывает сессию без коммита в `finally` —
 транзакция откатывается сама, БД не засоряется тестовыми продавцами.
 
+`tests/test_publication_service.py` — `PublicationService` первым в проекте
+реально обязан коммитить/откатывать транзакцию, поэтому фикстура `session`
+(рассчитанная на «никогда не коммитить») не годится. Используется отдельная
+фикстура `committing_session`: соединение + внешняя транзакция + `Session(bind=
+connection, join_transaction_mode="create_savepoint")` (SQLAlchemy 2.0) —
+`commit()`/`rollback()` внутри теста и внутри самого `PublicationService`
+работают на уровне SAVEPOINT, а внешняя транзакция откатывается целиком в
+`finally` фикстуры. Проверено отдельно (3 прогона подряд): БД после каждого —
+0 строк в `Seller`/`SellerProduct`/`CatalogPublication`.
+
 ## Структура
 
 ```
@@ -75,7 +85,9 @@ backend/
 │   ├── infrastructure/
 │   │   ├── database.py    — engine, SessionLocal, Base, get_session()
 │   │   ├── models.py      — ORM-модели существующих таблиц (Database First)
-│   │   └── repositories/  — явные репозитории (без GenericRepository)
+│   │   └── repositories/  — явные репозитории (без GenericRepository):
+│   │       ProductRepository, ProductGroupRepository (PR-002),
+│   │       SellerProductRepository, CatalogPublicationRepository (PR-006)
 │   ├── parsing/         — чтение источников каталога в RawWorkbook (PR-003)
 │   │   ├── raw_workbook.py  — RawWorkbook/RawSheet (внутреннее представление)
 │   │   ├── exceptions.py    — ParserError, ExcelParserError
@@ -86,12 +98,16 @@ backend/
 │   │   ├── semantic_validator.py  — значения строк «Каталог» (нужны репозитории PR-002)
 │   │   ├── business_validator.py  — PublicationKey, дедуп SellerProductId
 │   │   └── validator.py           — оркестратор Structure → Semantic + Business
-│   ├── platform/        — Anti-Corruption Layer к платформенным данным (PR-004)
-│   │   └── seller_gateway.py — SellerGateway: читает Seller напрямую (не ORM)
+│   ├── platform/        — Anti-Corruption Layer к платформенным данным (PR-004/006)
+│   │   └── seller_gateway.py — SellerGateway: читает и обновляет Seller напрямую (не ORM)
 │   ├── mapping/         — RawWorkbook → PublicationModel (PR-005)
 │   │   ├── errors.py             — MapperError
 │   │   ├── publication_model.py  — PublicationModel/PublicationProduct/PublicationMetadata
 │   │   └── mapper.py             — Mapper: чистое преобразование структуры, без бизнес-логики
+│   ├── publication/     — PublicationModel → БД (PR-006)
+│   │   ├── errors.py              — PublicationError/DuplicatePublicationError/PublicationConflictError
+│   │   ├── publication_result.py  — PublicationResult
+│   │   └── publication_service.py — PublicationService: атомарная публикация каталога продавца
 │   ├── core/           — конфигурация приложения
 │   └── main.py
 └── tests/
@@ -179,6 +195,71 @@ Mapper не принимает бизнес-решений — не обраща
 `price`, `unit`, `stock`, `description`, `attributes` — построчно из листа
 «Каталог» (те же 9 колонок, что и `CATALOG_COLUMNS` в `structure_validator.py`,
 переиспользуется только порядок, без повторной проверки значений).
+
+## Publication Service (PR-006)
+
+`PublicationService.publish(model, published_by) -> PublicationResult` — первый
+слой пайплайна, реально изменяющий состояние БД (задание коллеги,
+`kwork/timeline.md`, п.46). Транзакционно применяет уже промапленную
+`PublicationModel` к каталогу продавца:
+
+- **Проверка `PublicationKey`** — через `CatalogPublicationRepository.exists_with_key()`:
+  если этот ключ уже встречался в истории публикаций (`UNIQUE INDEX
+  uk_CatalogPublication_key`, миграция 005) — `DuplicatePublicationError`
+  (защита от повторной обработки уже опубликованного документа). Это не
+  повтор проверки `BusinessValidator` (PR-004, «ключ совпадает с текущим»
+  у продавца) — другая проверка, другой смысл (см. «Отклонения» ниже).
+- **Проверка `CatalogHash`** — если совпадает с текущим `Seller.current_catalog_hash`,
+  `SellerProduct` не трогается (0 create/update/deactivate), но версия/лог
+  публикаций и `current_publication_key` у продавца всё равно обновляются.
+- **`SellerProduct`**: без `SellerProductId` — создаётся новый; с
+  `SellerProductId` — обновляется существующий после проверки принадлежности
+  текущему `seller_id` (иначе `PublicationConflictError`, тот же код для
+  случая, когда такого `SellerProductId` вообще нет). Изменившимся считается
+  товар при изменении цены/остатка/описания/группы/позиции/единицы/имени
+  продавца **или если товар был деактивирован и теперь снова присутствует в
+  каталоге** — в этом случае `is_published` возвращается в `True` даже если
+  остальные поля не менялись (без этого условия реактивация не сработала бы
+  для товара, вернувшегося без единой правки). Пропавшие из публикации
+  товары не удаляются — переводятся в `is_published = False`, история
+  сохраняется.
+- **Смена товарной позиции** (`product_id` меняется на другое значение,
+  включая `None ↔ реальный Product`) трактуется как новая заявка на
+  классификацию (`docs/02-domain/Catalog_Template.md`, «Изменение товарной
+  позиции GreenMarket»): `moderation_status` сбрасывается в `WAIT_PRODUCT`,
+  `moderator_id`/`moderated_at`/`moderation_comment` очищаются — предыдущее
+  решение модератора относилось к другой позиции. Срабатывает только когда
+  `product_id` реально меняется, не на каждое обновление товара.
+- **Journal**: каждая публикация — новая строка `CatalogPublication`
+  (`version` = предыдущий + 1 для этого продавца), `Seller.current_publication_key`/
+  `current_catalog_hash`/`current_catalog_version` обновляются через
+  `SellerGateway.update_current_publication()` (та же ACL, что и чтение).
+- **Транзакция**: любая ошибка (`PublicationConflictError`,
+  `DuplicatePublicationError` или любая другая) — `session.rollback()` и
+  проброс исключения; успешный путь — один `session.commit()` в конце.
+  `IntegrityError` от гонки на `UNIQUE(publication_key)` (два `publish()` с
+  одним ключом одновременно — окно между `exists_with_key()` и собственным
+  `INSERT`) перехватывается отдельно и переупаковывается в
+  `DuplicatePublicationError`, чтобы наружу не утекала чужая (SQLAlchemy)
+  ошибка в нарушение контракта «только собственные ошибки».
+- **Логирование**: начало публикации, `seller_id`, `publication_key` — на
+  старте; при успехе — те же поля плюс счётчики created/updated/deactivated;
+  при любой ошибке — `seller_id`/`publication_key`/причина, уровень warning.
+
+## Найдено при реализации PR-006: ORM не знает про DB-side DEFAULT
+
+`SellerProduct`/`CatalogPublication` (Database First, `models.py`) не
+объявляют `server_default` для колонок с MySQL-side `DEFAULT`/`ON UPDATE
+CURRENT_TIMESTAMP` (`is_published`, `moderation_status`, `created_at`,
+`updated_at`, `published_at`) — первая в проекте запись через ORM
+(`SellerProductRepository`/`CatalogPublicationRepository`, все предыдущие PR
+только читали) сразу же упала на `NOT NULL` constraint: SQLAlchemy шлёт explicit
+`NULL` для несписанных атрибутов, а не опускает колонку из INSERT, поэтому
+DB-side `DEFAULT` не применяется. Исправлено передачей этих полей явно в
+момент создания записи (`is_published=True`, `moderation_status="WAIT_PRODUCT"`,
+`created_at`/`updated_at`/`published_at` = текущее время), без изменения
+`models.py`. Актуально для будущих PR, пишущих в эти таблицы (Matcher/REST
+API) — тот же нюанс встретится там же.
 
 ## Найдено и исправлено независимым архитектурным ревью PR-005
 
@@ -286,6 +367,107 @@ Mapper не принимает бизнес-решений — не обраща
   каждой строки** — точный построчный формат этого листа коллега не прислал
   (только список полей), это разумное дефолтное предположение для
   key-value-листа, не проверенное отдельно.
+
+## Отклонения и допущения PR-006
+
+Задание (`kwork/timeline.md`, п.46) не описывает буквально несколько мест —
+решения ниже нужно согласовать с коллегой, как и открытые вопросы PR-004/005:
+
+- **Смысл проверки `PublicationKey`.** Формулировка задания допускает два
+  прочтения. Выбрано: `PublicationKey` проверяется на существование в
+  истории публикаций (`CatalogPublication.publication_key`, `UNIQUE INDEX
+  uk_CatalogPublication_key`) — если уже встречался, значит документ уже был
+  обработан (replay), публикация отклоняется. Это отдельная, более поздняя
+  (транзакционная) проверка, чем «ключ совпадает с текущим у продавца» —
+  её уже делает `BusinessValidator` (PR-004) до вызова Mapper/Publication
+  Service; Publication Service её не повторяет.
+- **Полное совпадение `CatalogHash` не означает «вообще ничего не делать»**:
+  `SellerProduct` не трогается (0 изменений — прямое требование задания «не
+  выполнять UPDATE»), но новая строка `CatalogPublication` всё равно
+  создаётся — этим новый `PublicationKey` «сжигается» в истории
+  (`exists_with_key()`), иначе при повторной подаче именно этого файла
+  (тот же ключ и тот же хеш) replay-защита не сработала бы. *Уточнение
+  после независимого ревью:* `Seller.current_publication_key` на этом пути
+  фактически не меняет значения — `BusinessValidator` (PR-004) уже
+  гарантирует, что ключ документа равен текущему до вызова Publication
+  Service, так что запись того же значения обратно — безвредный no-op, не
+  критичная для безопасности «ротация». Первоначальная формулировка здесь
+  («иначе старый ключ остался бы текущим навсегда») была неточной — это
+  найдено независимым ревью.
+- **«Неактивен» (пропавший из публикации товар) маппится на
+  `SellerProduct.is_published = False`** — отдельного enum/статуса для этого
+  в схеме (миграция 003) нет.
+- **`SellerProductId`, отсутствующий среди товаров продавца вообще** (не
+  просто принадлежащий другому продавцу), тоже считается
+  `PublicationConflictError` — не создаётся новая запись с этим ID вручную
+  (PK автоинкрементный, ID должен быть выдан сервером ранее).
+- **`published_by` — явный параметр `publish()`, не из содержимого файла** —
+  тот же принцип, что и `seller_id` в Validator/Mapper (PR-004/005, см. ниже):
+  идентификатор доверенного контекста не читается из документа.
+- **«Дополнительные характеристики» (`attributes`) нигде не сохраняются.**
+  `Mapper` их извлекает (PR-005), но у `SellerProduct` (миграция 003) нет
+  такой колонки — сравнивать/сохранять нечем. Не добавлял колонку без ADR;
+  открытый вопрос коллеге, как незакрытые вопросы `CatalogHash`-алгоритма
+  (PR-004) и `Decimal` vs `float` (PR-005).
+- **Разрешение `product_group_name`/`product_name` в `product_id`**
+  переиспользует `ProductGroupRepository`/`ProductRepository` — Publication
+  Service доверяет, что группа/позиция существуют (уже проверено
+  `SemanticValidator`), не перепроверяет их отдельно.
+
+## Найдено и исправлено независимым архитектурным ревью PR-006
+
+Тот же процесс, что и для PR-003/004/005 (`kwork/timeline.md`, п.39/43): два
+независимых агента-ревьюера (Opus, чистый контекст, без знания авторства),
+каждый нашёл и лично воспроизвёл на реальной MySQL до фикса:
+
+- **Деактивированный товар нельзя было вернуть в публикацию.** `_apply_catalog`
+  реализовывал только одно направление инварианта («пропал из каталога ⇒
+  `is_published=False`») — для существующей записи в ветке обновления
+  `is_published` не трогалось вообще. Товар, однажды пропавший из каталога и
+  вернувшийся позже по тому же `SellerProductId` (в том числе без единой
+  правки полей), оставался невидимым навсегда — прямое нарушение
+  идемпотентности «republish того же контента ⇒ то же состояние БД» из
+  задания. Исправлено: `existing.is_published = True` при любом обновлении
+  существующей записи, плюс `_has_changed()` учитывает `not
+  existing.is_published` как самостоятельное условие изменения (иначе
+  реактивация без сопутствующей правки других полей не срабатывала бы).
+- **Смена товарной позиции не сбрасывала `moderation_status`.**
+  `docs/02-domain/Catalog_Template.md` («Изменение товарной позиции
+  GreenMarket») прямо требует: смена `product_id` — новая заявка на
+  классификацию, `moderation_status → WAIT_PRODUCT`,
+  `moderator_id`/`moderated_at`/`moderation_comment` очищаются. Код это не
+  делал — решение модератора могло молча остаться привязанным к уже другой
+  позиции. Исправлено точечно: сброс происходит только когда `product_id`
+  реально меняется, не на каждое обновление записи.
+- **Логирование отсутствовало.** Задание явно перечисляет обязательные точки
+  лога (старт, `seller_id`, `publication_key`, счётчики, успех/причина
+  ошибки) — в коде не было ни одного вызова. Добавлено через стандартный
+  `logging` на старте/успехе/ошибке публикации.
+- **`IntegrityError` от гонки на `UNIQUE(publication_key)` мог утечь наружу
+  как чужое (SQLAlchemy) исключение**, нарушая контракт «Publication Service
+  возвращает только собственные ошибки». Воспроизведено тестом, симулирующим
+  окно гонки (репозиторий, у которого `exists_with_key()` намеренно не видит
+  уже существующий ключ, а реальный `UNIQUE INDEX` на `CatalogPublication`
+  всё равно есть). Исправлено: `IntegrityError` перехватывается отдельно и
+  переупаковывается в `DuplicatePublicationError`.
+- **Слабое название теста и пробел в покрытии** — `test_identical_catalog_hash_is_idempotent_no_op`
+  переименован в `test_identical_catalog_hash_with_fresh_key_short_circuits_without_touching_seller_products`
+  (он проверял short-circuit по хешу с НОВЫМ ключом, а не идемпотентность
+  повторной публикации одного и того же файла). Добавлен отдельный
+  `test_republishing_the_exact_same_file_is_rejected_as_duplicate` — буквально
+  обязательный по ТЗ кейс «re-publish the exact same file» (тот же
+  `PublicationKey` И тот же `CatalogHash`), которого не было.
+- **Уточнение формулировки** (не баг, но неверное обоснование) — см. пункт
+  про `CatalogHash` выше: причина обновления журнала на hash-match ветке —
+  не «иначе ключ навсегда останется текущим» (это неверно: `BusinessValidator`
+  уже гарантирует совпадение до вызова PS), а «сжечь ключ в истории
+  `CatalogPublication` на случай буквального повтора того же файла».
+
+Оба агента сошлись Request Changes с одинаковым основным дефектом
+(реактивация) — совпадение, аналогичное PR-003/004/005. Полный прогон после
+фиксов: 83/83 теста зелёные (было 76: +2 на реактивацию/модерацию, +1 на
+`IntegrityError`, +2 на логирование, +1 на буквальный повтор файла, +1
+переименован без изменения смысла — итог заменил прежний тест на два).
 
 ## Отклонения и допущения PR-005
 
