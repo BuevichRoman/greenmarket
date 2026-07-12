@@ -91,6 +91,22 @@ def test_missing_sheet_source_returns_422(committing_session):
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_pydantic_type_error_returns_422_with_envelope(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"seller_id": "not-a-number", "published_by": 1, "spreadsheet_id": "x"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_validation_errors_return_422_with_details(committing_session):
     from fastapi.testclient import TestClient
 
@@ -111,7 +127,7 @@ def test_validation_errors_return_422_with_details(committing_session):
     assert len(response.json()["error"]["details"]) > 0
 
 
-def test_sheet_not_found_returns_400(committing_session):
+def test_sheet_not_found_returns_404(committing_session):
     from fastapi.testclient import TestClient
 
     seller_id = insert_seller(committing_session, name="Ферма таблица не найдена")
@@ -126,8 +142,46 @@ def test_sheet_not_found_returns_400(committing_session):
     )
 
     app.dependency_overrides.clear()
-    assert response.status_code == 400
+    assert response.status_code == 404
     assert response.json()["error"]["code"] == "SHEET_NOT_FOUND"
+
+
+def test_sheet_access_denied_returns_403(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма доступ запрещён")
+    user_id = insert_user(committing_session, name="Admin")
+    override_session(committing_session)
+    override_resource(make_resource([], get_error=make_http_error(403)))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-5"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SHEET_ACCESS_DENIED"
+
+
+def test_generic_google_api_error_returns_500(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма ошибка API")
+    user_id = insert_user(committing_session, name="Admin")
+    override_session(committing_session)
+    override_resource(make_resource([], get_error=make_http_error(500)))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-6"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "GOOGLE_API_ERROR"
 
 
 def test_spreadsheet_id_is_extracted_from_sheet_url(committing_session):

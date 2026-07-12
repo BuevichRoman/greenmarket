@@ -1,4 +1,6 @@
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -11,6 +13,20 @@ app = FastAPI(
     version="1.0.0",
 )
 app.include_router(publications_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Ошибка валидации запроса",
+                "details": [str(e) for e in exc.errors()],
+            }
+        },
+    )
 
 
 @app.get("/health")

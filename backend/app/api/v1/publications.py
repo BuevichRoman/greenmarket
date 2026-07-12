@@ -38,9 +38,9 @@ def create_publication(
         return _error(422, "VALIDATION_ERROR", str(exc))
 
     logger.info("Публикация начата: seller_id=%s spreadsheet_id=%s", request.seller_id, spreadsheet_id)
-    use_case = PublicationUseCase(session, parser_resource=parser_resource)
 
     try:
+        use_case = PublicationUseCase(session, parser_resource=parser_resource)
         result = use_case.publish(spreadsheet_id, seller_id=request.seller_id, published_by=request.published_by)
     except PublicationValidationError as exc:
         return _error(
@@ -54,12 +54,15 @@ def create_publication(
     except PublicationConflictError as exc:
         return _error(409, "PUBLICATION_CONFLICT", str(exc))
     except GoogleSheetsNotFoundError as exc:
-        return _error(400, "SHEET_NOT_FOUND", str(exc))
+        return _error(404, "SHEET_NOT_FOUND", str(exc))
     except GoogleSheetsAccessError as exc:
-        return _error(400, "SHEET_ACCESS_DENIED", str(exc))
+        return _error(403, "SHEET_ACCESS_DENIED", str(exc))
     except ParserError as exc:
         logger.warning("Ошибка Google Sheets API: seller_id=%s error=%s", request.seller_id, exc)
-        return _error(500, "GOOGLE_API_ERROR", str(exc))
+        return _error(500, "GOOGLE_API_ERROR", "Ошибка при обращении к Google Sheets API")
+    except Exception as exc:
+        logger.exception("Внутренняя ошибка при публикации: seller_id=%s error=%s", request.seller_id, exc)
+        return _error(500, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 
     logger.info(
         "Публикация завершена: seller_id=%s publication_id=%s created=%s updated=%s deactivated=%s",
