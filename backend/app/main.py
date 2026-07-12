@@ -3,12 +3,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.api.v1.publications import router as publications_router
 from app.infrastructure.database import get_session
 
 app = FastAPI(
     title="GreenMarket Backend",
     version="1.0.0",
 )
+app.include_router(publications_router)
 
 
 @app.get("/health")
