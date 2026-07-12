@@ -43,7 +43,15 @@ Publication Service является единственным владельце
 
 ## Источник данных
 
-Источник данных только один — рабочий каталог продавца. Поддерживаются Microsoft Excel и Google Sheets (после экспорта в Excel); точный формат файла — [Catalog_Template.md](../02-domain/Catalog_Template.md). Ручное изменение опубликованного каталога через интерфейс не допускается.
+Источник данных только один — статическая таблица Google Sheets, созданная продавцом как копия шаблона GreenMarket (CR-001); точный формат — [Catalog_Template.md](../02-domain/Catalog_Template.md). Ручное изменение опубликованного каталога через интерфейс не допускается.
+
+### Google Sheets Parser
+
+`GoogleSheetsParser` читает таблицу через Service Account (`spreadsheets.values.batchGet`, `valueRenderOption=UNFORMATTED_VALUE` — обязательное условие эквивалентности `ExcelParser`). Таймаут запроса к Google API — 10 секунд, без retry в Stage 1 (публикация — синхронное пользовательское действие; лучше быстрый отказ, чем зависший HTTP-запрос). Контракт `GoogleSheetsParser` идентичен `ExcelParser` — возвращает тот же `RawWorkbook`, не вычисляет `PublicationKey`/`CatalogHash`.
+
+### PublicationKey и CatalogHash — генерация сервером
+
+`PublicationKey` (`uuid.uuid4()`) и `CatalogHash` (SHA-256 от содержимого `RawWorkbook`, посчитанный до `Validator`) больше не читаются из документа — оба генерируются/вычисляются сервером на каждый вызов публикации (CR-001).
 
 ## Общий процесс публикации
 

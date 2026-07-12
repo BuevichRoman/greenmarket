@@ -61,18 +61,10 @@ def make_product(*, seller_product_id=None, seller_name="Ферма А", group="
     )
 
 
-def make_model(seller_id: int, products: list[PublicationProduct], *, publication_key: str, catalog_hash: str) -> PublicationModel:
+def make_model(seller_id: int, products: list[PublicationProduct]) -> PublicationModel:
     return PublicationModel(
         products=products,
-        metadata=PublicationMetadata(
-            seller_id=seller_id,
-            document_id="doc-1",
-            document_version="1.0",
-            publication_key=publication_key,
-            generated_at="2026-07-11",
-            generated_by="server",
-            catalog_hash=catalog_hash,
-        ),
+        metadata=PublicationMetadata(seller_id=seller_id, template_version="1.0", template_id="template-1"),
     )
 
 
@@ -84,12 +76,12 @@ def test_publishes_new_catalog_creates_seller_products(committing_session):
     model = make_model(
         seller_id,
         [make_product(seller_name="Ферма А", price=50), make_product(seller_name="Ферма Б", price=80)],
-        publication_key="key-1", catalog_hash="hash-1",
     )
 
-    result = service.publish(model, published_by=user_id)
+    result = service.publish(model, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
 
     assert result.success is True
+    assert result.publication_id > 0
     assert (result.created_count, result.updated_count, result.deactivated_count) == (2, 0, 0)
 
     seller_products = SellerProductRepository(committing_session).list_by_seller(seller_id)
@@ -108,16 +100,15 @@ def test_publishing_again_updates_changed_seller_product(committing_session):
     insert_product(committing_session, product_group_id=group_id, name="Тестовый товар")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(price=50, unit="кг")], publication_key="key-1", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(price=50, unit="кг")])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
 
     second = make_model(
         seller_id,
         [make_product(seller_product_id=seller_product_id, price=99.5, name="Тестовый товар")],
-        publication_key="key-2", catalog_hash="hash-2",
     )
-    result = service.publish(second, published_by=user_id)
+    result = service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
     assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 1, 0)
     updated = SellerProductRepository(committing_session).find_by_id(seller_product_id)
@@ -130,8 +121,8 @@ def test_publishing_alongside_new_product_only_counts_new_one(committing_session
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(seller_name="Ферма А", price=50, unit="кг", stock=5)], publication_key="key-1", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(seller_name="Ферма А", price=50, unit="кг", stock=5)])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     existing_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
 
     second = make_model(
@@ -140,9 +131,8 @@ def test_publishing_alongside_new_product_only_counts_new_one(committing_session
             make_product(seller_product_id=existing_id, seller_name="Ферма А", price=50, unit="кг", stock=5),
             make_product(seller_name="Ферма А", price=10, unit="шт", stock=3),
         ],
-        publication_key="key-2", catalog_hash="hash-2",
     )
-    result = service.publish(second, published_by=user_id)
+    result = service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
     assert (result.created_count, result.updated_count, result.deactivated_count) == (1, 0, 0)
     assert len(SellerProductRepository(committing_session).list_by_seller(seller_id)) == 2
@@ -156,17 +146,15 @@ def test_publishing_catalog_missing_previous_product_deactivates_it(committing_s
     first = make_model(
         seller_id,
         [make_product(seller_name="Остаётся", price=10), make_product(seller_name="Пропадёт", price=20)],
-        publication_key="key-1", catalog_hash="hash-1",
     )
-    service.publish(first, published_by=user_id)
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     remaining, disappearing = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
     second = make_model(
         seller_id,
         [make_product(seller_product_id=remaining.id, seller_name="Остаётся", price=10)],
-        publication_key="key-2", catalog_hash="hash-2",
     )
-    result = service.publish(second, published_by=user_id)
+    result = service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
     assert result.deactivated_count == 1
     repository = SellerProductRepository(committing_session)
@@ -186,11 +174,10 @@ def test_conflict_error_rolls_back_all_changes(committing_session):
     model = make_model(
         seller_id,
         [make_product(seller_name="Новый товар", price=5), make_product(seller_product_id=other_seller_product_id, seller_name="Подмена", price=1)],
-        publication_key="key-1", catalog_hash="hash-1",
     )
 
     with pytest.raises(PublicationConflictError):
-        service.publish(model, published_by=user_id)
+        service.publish(model, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
 
     assert SellerProductRepository(committing_session).list_by_seller(seller_id) == []
     assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 0
@@ -206,10 +193,10 @@ def test_seller_product_belonging_to_another_seller_is_rejected(committing_sessi
     ).id
     service = make_service(committing_session)
 
-    model = make_model(seller_id, [make_product(seller_product_id=other_id, price=1)], publication_key="key-1", catalog_hash="hash-1")
+    model = make_model(seller_id, [make_product(seller_product_id=other_id, price=1)])
 
     with pytest.raises(PublicationConflictError):
-        service.publish(model, published_by=user_id)
+        service.publish(model, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
 
 
 def test_duplicate_publication_key_is_rejected(committing_session):
@@ -217,12 +204,12 @@ def test_duplicate_publication_key_is_rejected(committing_session):
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(price=10)], publication_key="dup-key", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(price=10)])
+    service.publish(first, published_by=user_id, publication_key="dup-key", catalog_hash="hash-1")
 
-    second = make_model(seller_id, [make_product(price=20)], publication_key="dup-key", catalog_hash="hash-2")
+    second = make_model(seller_id, [make_product(price=20)])
     with pytest.raises(DuplicatePublicationError):
-        service.publish(second, published_by=user_id)
+        service.publish(second, published_by=user_id, publication_key="dup-key", catalog_hash="hash-2")
 
     assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 1
 
@@ -232,12 +219,12 @@ def test_product_returning_after_deactivation_is_reactivated(committing_session)
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)], publication_key="key-1", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     kept, dropped = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
-    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)], publication_key="key-2", catalog_hash="hash-2")
-    service.publish(second, published_by=user_id)
+    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)])
+    service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
     assert SellerProductRepository(committing_session).find_by_id(dropped.id).is_published is False
 
     third = make_model(
@@ -246,9 +233,8 @@ def test_product_returning_after_deactivation_is_reactivated(committing_session)
             make_product(seller_product_id=kept.id, seller_name="A", price=10),
             make_product(seller_product_id=dropped.id, seller_name="B", price=99),
         ],
-        publication_key="key-3", catalog_hash="hash-3",
     )
-    result = service.publish(third, published_by=user_id)
+    result = service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
 
     reactivated = SellerProductRepository(committing_session).find_by_id(dropped.id)
     assert reactivated.is_published is True
@@ -264,12 +250,12 @@ def test_product_returning_with_no_other_field_changes_is_still_reactivated(comm
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)], publication_key="key-1", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     kept, dropped = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
-    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)], publication_key="key-2", catalog_hash="hash-2")
-    service.publish(second, published_by=user_id)
+    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)])
+    service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
     third = make_model(
         seller_id,
@@ -277,9 +263,8 @@ def test_product_returning_with_no_other_field_changes_is_still_reactivated(comm
             make_product(seller_product_id=kept.id, seller_name="A", price=10),
             make_product(seller_product_id=dropped.id, seller_name="B", price=20),
         ],
-        publication_key="key-3", catalog_hash="hash-3",
     )
-    result = service.publish(third, published_by=user_id)
+    result = service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
 
     assert SellerProductRepository(committing_session).find_by_id(dropped.id).is_published is True
     assert result.updated_count == 1
@@ -292,8 +277,8 @@ def test_changing_product_position_resets_moderation_status(committing_session):
     insert_product(committing_session, product_group_id=group_id, name="Тестовый товар модерации")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(group="Тестовая группа модерации", price=10)], publication_key="key-1", catalog_hash="hash-1")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(group="Тестовая группа модерации", price=10)])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
 
     committing_session.execute(
@@ -305,8 +290,8 @@ def test_changing_product_position_resets_moderation_status(committing_session):
     )
 
     # Изменилась только цена — moderation_status трогать не должны.
-    second = make_model(seller_id, [make_product(seller_product_id=seller_product_id, group="Тестовая группа модерации", price=15)], publication_key="key-2", catalog_hash="hash-2")
-    service.publish(second, published_by=user_id)
+    second = make_model(seller_id, [make_product(seller_product_id=seller_product_id, group="Тестовая группа модерации", price=15)])
+    service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
     unchanged = SellerProductRepository(committing_session).find_by_id(seller_product_id)
     assert unchanged.moderation_status == "RESOLVED"
 
@@ -314,9 +299,8 @@ def test_changing_product_position_resets_moderation_status(committing_session):
     third = make_model(
         seller_id,
         [make_product(seller_product_id=seller_product_id, group="Тестовая группа модерации", name="Тестовый товар модерации", price=15)],
-        publication_key="key-3", catalog_hash="hash-3",
     )
-    service.publish(third, published_by=user_id)
+    service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
     reclassified = SellerProductRepository(committing_session).find_by_id(seller_product_id)
     assert reclassified.moderation_status == "WAIT_PRODUCT"
     assert reclassified.moderator_id is None
@@ -330,10 +314,10 @@ def test_publish_logs_start_and_success(committing_session, caplog):
     seller_id = insert_seller(committing_session, name="Ферма логирование")
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
-    model = make_model(seller_id, [make_product(price=10)], publication_key="log-key-1", catalog_hash="log-hash-1")
+    model = make_model(seller_id, [make_product(price=10)])
 
     with caplog.at_level(logging.INFO, logger="app.publication.publication_service"):
-        service.publish(model, published_by=user_id)
+        service.publish(model, published_by=user_id, publication_key="log-key-1", catalog_hash="log-hash-1")
 
     messages = " ".join(r.message for r in caplog.records)
     assert str(seller_id) in messages
@@ -347,11 +331,11 @@ def test_publish_logs_failure_reason_on_error(committing_session, caplog):
     seller_id = insert_seller(committing_session, name="Ферма ошибка лог")
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
-    model = make_model(seller_id, [make_product(seller_product_id=999_999, price=10)], publication_key="log-key-err", catalog_hash="log-hash-err")
+    model = make_model(seller_id, [make_product(seller_product_id=999_999, price=10)])
 
     with caplog.at_level(logging.WARNING, logger="app.publication.publication_service"):
         with pytest.raises(PublicationConflictError):
-            service.publish(model, published_by=user_id)
+            service.publish(model, published_by=user_id, publication_key="log-key-err", catalog_hash="log-hash-err")
 
     assert any("PublicationConflictError" in r.message or "999999" in r.message for r in caplog.records)
 
@@ -380,10 +364,10 @@ def test_integrity_error_race_on_publication_key_is_wrapped(committing_session):
         product_group_repository=ProductGroupRepository(committing_session),
         catalog_publication_repository=BlindToRaceRepository(committing_session),
     )
-    model = make_model(seller_id, [make_product(price=10)], publication_key="raced-key", catalog_hash="hash-race")
+    model = make_model(seller_id, [make_product(price=10)])
 
     with pytest.raises(DuplicatePublicationError):
-        service.publish(model, published_by=user_id)
+        service.publish(model, published_by=user_id, publication_key="raced-key", catalog_hash="hash-race")
 
     assert SellerProductRepository(committing_session).list_by_seller(seller_id) == []
 
@@ -396,12 +380,12 @@ def test_identical_catalog_hash_with_fresh_key_short_circuits_without_touching_s
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(price=10)], publication_key="key-1", catalog_hash="same-hash")
-    service.publish(first, published_by=user_id)
+    first = make_model(seller_id, [make_product(price=10)])
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="same-hash")
     before = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
-    second = make_model(seller_id, [make_product(price=999)], publication_key="key-2", catalog_hash="same-hash")
-    result = service.publish(second, published_by=user_id)
+    second = make_model(seller_id, [make_product(price=999)])
+    result = service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="same-hash")
 
     assert result.success is True
     assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 0, 0)
@@ -420,11 +404,11 @@ def test_republishing_the_exact_same_file_is_rejected_as_duplicate(committing_se
     user_id = insert_user(committing_session, name="Admin")
     service = make_service(committing_session)
 
-    model = make_model(seller_id, [make_product(price=10)], publication_key="same-file-key", catalog_hash="same-file-hash")
-    service.publish(model, published_by=user_id)
+    model = make_model(seller_id, [make_product(price=10)])
+    service.publish(model, published_by=user_id, publication_key="same-file-key", catalog_hash="same-file-hash")
 
-    resubmitted = make_model(seller_id, [make_product(price=10)], publication_key="same-file-key", catalog_hash="same-file-hash")
+    resubmitted = make_model(seller_id, [make_product(price=10)])
     with pytest.raises(DuplicatePublicationError):
-        service.publish(resubmitted, published_by=user_id)
+        service.publish(resubmitted, published_by=user_id, publication_key="same-file-key", catalog_hash="same-file-hash")
 
     assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 1

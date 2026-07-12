@@ -21,12 +21,8 @@ CATALOG_HEADER = [
 ]
 
 SYSTEM_ROWS = [
-    ["DocumentId", "doc-1"],
-    ["DocumentVersion", "1.0"],
-    ["PublicationKey", "key-1"],
-    ["GeneratedAt", "2026-07-11"],
-    ["GeneratedBy", "server"],
-    ["CatalogHash", "hash-1"],
+    ["TemplateVersion", "1.0"],
+    ["TemplateId", "template-1"],
 ]
 
 
@@ -102,12 +98,8 @@ def test_maps_system_sheet_and_seller_id_into_metadata():
     result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
 
     assert result.metadata.seller_id == 42
-    assert result.metadata.document_id == "doc-1"
-    assert result.metadata.document_version == "1.0"
-    assert result.metadata.publication_key == "key-1"
-    assert result.metadata.generated_at == "2026-07-11"
-    assert result.metadata.generated_by == "server"
-    assert result.metadata.catalog_hash == "hash-1"
+    assert result.metadata.template_version == "1.0"
+    assert result.metadata.template_id == "template-1"
 
 
 def test_raises_mapper_error_when_validation_result_has_errors():

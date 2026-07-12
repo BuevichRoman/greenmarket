@@ -15,7 +15,7 @@
 
 ## Источник данных
 
-Единственным источником данных является рабочий каталог продавца. Поддерживаются форматы Microsoft Excel и Google Sheets (через экспорт в Excel) — точный формат определён в [Catalog_Template.md](Catalog_Template.md). Publication Service не предоставляет интерфейс ручного редактирования каталога.
+Единственным источником данных является статическая таблица Google Sheets, созданная продавцом как копия шаблона GreenMarket (CR-001, [`docs/06-development/adr/0002-static-google-sheets-template.md`](../06-development/adr/0002-static-google-sheets-template.md)) — точный формат определён в [Catalog_Template.md](Catalog_Template.md). Publication Service не предоставляет интерфейс ручного редактирования каталога и не пишет в исходную таблицу.
 
 ## Publication Service
 

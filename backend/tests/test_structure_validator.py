@@ -17,12 +17,8 @@ PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наимен
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
 
 SYSTEM_ROWS = [
-    ["DocumentId", "doc-1"],
-    ["DocumentVersion", "1.0"],
-    ["PublicationKey", "key-1"],
-    ["GeneratedAt", "2026-07-10"],
-    ["GeneratedBy", "server"],
-    ["CatalogHash", "hash-1"],
+    ["TemplateVersion", "1.0"],
+    ["TemplateId", "template-1"],
 ]
 
 
@@ -100,17 +96,17 @@ def test_missing_required_column_reports_error():
 
 
 def test_missing_system_field_reports_error():
-    rows_without_hash = [row for row in SYSTEM_ROWS if row[0] != "CatalogHash"]
-    workbook = replace_sheet(make_valid_workbook(), "_System", rows_without_hash)
+    rows_without_template_id = [row for row in SYSTEM_ROWS if row[0] != "TemplateId"]
+    workbook = replace_sheet(make_valid_workbook(), "_System", rows_without_template_id)
 
     result = StructureValidator().validate(workbook)
 
     assert not result.is_valid
-    assert any("CatalogHash" in e.message for e in result.errors)
+    assert any("TemplateId" in e.message for e in result.errors)
 
 
 def test_unsupported_template_version_reports_error():
-    rows = [["DocumentVersion", "2.0"] if row[0] == "DocumentVersion" else row for row in SYSTEM_ROWS]
+    rows = [["TemplateVersion", "2.0"] if row[0] == "TemplateVersion" else row for row in SYSTEM_ROWS]
     workbook = replace_sheet(make_valid_workbook(), "_System", rows)
 
     result = StructureValidator().validate(workbook)
@@ -127,14 +123,14 @@ def test_instruction_sheet_structure_is_not_checked():
     assert result.is_valid
 
 
-def test_empty_publication_key_value_reports_error():
-    rows = [["PublicationKey", None] if row[0] == "PublicationKey" else row for row in SYSTEM_ROWS]
+def test_empty_template_version_value_reports_error():
+    rows = [["TemplateVersion", None] if row[0] == "TemplateVersion" else row for row in SYSTEM_ROWS]
     workbook = replace_sheet(make_valid_workbook(), "_System", rows)
 
     result = StructureValidator().validate(workbook)
 
     assert not result.is_valid
-    assert any("PublicationKey" in e.message for e in result.errors)
+    assert any("TemplateVersion" in e.message for e in result.errors)
 
 
 def test_narrow_system_sheet_does_not_crash():

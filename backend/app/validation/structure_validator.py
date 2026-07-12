@@ -45,7 +45,7 @@ PRODUCTS_COLUMNS = [
     _Column("Наименование", required=True),
 ]
 
-SYSTEM_FIELDS = ["DocumentId", "DocumentVersion", "PublicationKey", "GeneratedAt", "GeneratedBy", "CatalogHash"]
+SYSTEM_FIELDS = ["TemplateVersion", "TemplateId"]
 SUPPORTED_TEMPLATE_VERSIONS = {"1.0"}
 
 
@@ -113,11 +113,11 @@ class StructureValidator:
             elif value is None or value == "":
                 # Сервер не должен доверять служебным данным файла без проверки
                 # (Catalog_Template.md, "Защита служебных данных") — пустое
-                # значение PublicationKey/CatalogHash и т.п. так же невалидно,
-                # как отсутствующее поле, а не молчаливо пропускается дальше.
+                # значение служебного поля так же невалидно, как отсутствующее,
+                # а не молчаливо пропускается дальше.
                 errors.append(ValidationError(sheet=sheet.name, message=f"Пустое значение служебного поля '{field_name}'"))
 
-        version = values.get("DocumentVersion")
+        version = values.get("TemplateVersion")
         if version is not None and version not in SUPPORTED_TEMPLATE_VERSIONS:
             errors.append(
                 ValidationError(

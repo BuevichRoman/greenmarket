@@ -246,6 +246,124 @@ Mapper не принимает бизнес-решений — не обраща
   старте; при успехе — те же поля плюс счётчики created/updated/deactivated;
   при любой ошибке — `seller_id`/`publication_key`/причина, уровень warning.
 
+## CR-001 — переход на статический шаблон Google Sheets
+
+По итогам согласования с коллегой (три ссылки ChatGPT, зафиксировано ADR
+`docs/06-development/adr/0002-static-google-sheets-template.md`) модель
+публикации изменена: Google Sheets — статический шаблон, который продавец
+копирует сам; GreenMarket никогда не пишет в таблицу. Следствия:
+
+- `_System` больше не хранит `PublicationKey`/`CatalogHash` — только
+  `TemplateVersion`/`TemplateId` (метаданные шаблона, не публикации).
+- `PublicationKey` (`uuid.uuid4()`) и `CatalogHash` (SHA-256 от содержимого
+  листа «Каталог», вычисляется `HashCalculator` ДО Validator) теперь
+  генерируются/вычисляются сервером на каждый вызов `POST /api/v1/publications`,
+  а не читаются из документа.
+- `BusinessValidator` лишился проверки `PublicationKey` (сверять в документе
+  больше нечего) и зависимости от `SellerGateway`/`seller_id` — остался
+  только дедуп `SellerProductId`.
+- `Validator.validate()` лишился параметра `seller_id` — им пользовалась
+  только удалённая проверка `PublicationKey`.
+- `PublicationMetadata` вместо `document_id`/`document_version`/
+  `publication_key`/`generated_at`/`generated_by`/`catalog_hash` содержит
+  `template_version`/`template_id`.
+- `PublicationService.publish()` принимает `publication_key`/`catalog_hash`
+  явленными параметрами (генерируются новым `PublicationUseCase`, не
+  читаются из `PublicationModel.metadata`). `PublicationResult` получил
+  `publication_id` (id созданной записи `CatalogPublication`) — нужен для
+  REST-ответа.
+
+**Открытый вопрос коллеге** (тот же паттерн, что и незакрытый вопрос
+`CatalogHash`-алгоритма из PR-004): точная область хеширования
+`CatalogHash` не была указана в CR-001 буквально — реализовано как SHA-256
+от JSON-сериализации строк данных листа «Каталог» (без заголовка, с учётом
+порядка строк), в `HashCalculator`. Если коллега имел в виду другой охват
+(например, включая `_System`/справочники) — потребуется отдельное
+согласование, так как это меняет CatalogHash для уже опубликованных
+каталогов.
+
+## Google Sheets Parser + Publication REST API (PR-007)
+
+`GoogleSheetsParser.parse(spreadsheet_id) -> RawWorkbook` — тот же контракт,
+что `ExcelParser`, читает таблицу через Service Account
+(`spreadsheets.values.batchGet`, `valueRenderOption=UNFORMATTED_VALUE` —
+обязательно, иначе числа придут строками). Таймаут — 10 секунд (настраивается
+`GOOGLE_SHEETS_TIMEOUT_SECONDS`), retry не реализован (Stage 1, синхронная
+публикация — лучше быстрый отказ, чем зависший запрос).
+
+`PublicationUseCase.publish(spreadsheet_id, seller_id, published_by)` —
+оркестрирует весь пайплайн: `GoogleSheetsParser → HashCalculator (до
+Validator, CR-001) → Validator (без seller_id, CR-001) → Mapper →
+PublicationService`, генерирует `PublicationKey`.
+
+`POST /api/v1/publications` (`backend/app/api/v1/publications.py`) —
+JSON-тело `{seller_id, published_by, sheet_url | spreadsheet_id}`. HTTP-коды:
+- `200` — успешная публикация
+- `422` — `VALIDATION_ERROR` (отсутствие `sheet_url`/`spreadsheet_id`, ошибки
+  валидации каталога, ошибки парсинга JSON-тела)
+- `403` — `SHEET_ACCESS_DENIED` (`GoogleSheetsAccessError`: Service Account
+  без доступа к таблице)
+- `404` — `SHEET_NOT_FOUND` (`GoogleSheetsNotFoundError`: неправильный ID)
+- `409` — `DUPLICATE_PUBLICATION` (публикация с этим `PublicationKey` уже
+  была обработана) или `PUBLICATION_CONFLICT` (конфликт при обновлении
+  `SellerProduct`)
+- `500` — `GOOGLE_API_ERROR` (внутренние ошибки Google API, сообщение
+  обобщённое, сырой exception не отправляется клиенту) или `INTERNAL_ERROR`
+  (любая другая неожиданная ошибка, например неудача при загрузке Service
+  Account credentials — deliberate last-resort catch-all, гарантирует что
+  клиент всегда получит `{"error": {...}}` вместо дефолтной FastAPI ошибки).
+
+**Тестирование `GoogleSheetsParser` — отклонение от принципа «без mock».**
+Все остальные интеграционные тесты проекта бьют в реальную MySQL, без mock.
+Google Sheets API не может быть вызван офлайн, а полноценный интеграционный
+тест (как просит коллега) требует реальный тестовый Google Sheet,
+расшаренный на Service Account — инфраструктура, которую нужно завести
+отдельно (см. `GOOGLE_SERVICE_ACCOUNT_FILE` в `.env.example`). Пока это не
+готово, `GoogleSheetsParser` и вся цепочка выше него (`PublicationUseCase`,
+REST-контроллер) тестируются через инъекцию `resource`/`parser_resource` —
+самодельный дублёр `FakeSheetsResource` (`tests/test_google_sheets_parser.py`),
+не библиотека мокирования. Когда появится реальный Service Account и
+тестовая таблица — добавить отдельный `test_google_sheets_parser_integration.py`
+по образцу `test_product_repository.py` (реальная сеть, реальная таблица).
+
+## Отклонения и допущения CR-001
+
+- **Алгоритм хеширования `CatalogHash`.** CR-001 не специфицирует буквально
+  какие именно данные хешируются — реализовано как SHA-256 от JSON листа
+  «Каталог», см. `HashCalculator` в `app/publication/`. Если коллега имел в
+  виду другой охват (например, с включением служебных данных или справочников)
+  — потребуется отдельное согласование и миграция уже опубликованных каталогов.
+
+## Найдено и исправлено независимым архитектурным ревью PR-007
+
+Дополнительный раунд review (после первого мёрджа кода с основным функционалом)
+обнаружил и подтвердил необходимость 5 качественных фиксов:
+
+- **(a) `PublicationUseCase` конструировалась вне try/except** — загрузка
+  Service Account credentials (если некорректна) выбрасывала бы ошибку до
+  вхождения в try-блок, и клиент получал бы дефолтный FastAPI ответ вместо
+  project-specific `{"error": {...}}` конверта. Исправлено: конструирование
+  `PublicationUseCase` перенесено в начало try-блока; добавлен generic
+  `Exception` catch-all с `INTERNAL_ERROR` кодом.
+- **(b) Pydantic's собственные ошибки валидации JSON-тела** (например
+  неправильный тип поля) использовали дефолтный FastAPI формат
+  `{"detail": [...]}` вместо project-specific конверта. Исправлено: добавлен
+  global `RequestValidationError` обработчик в `app/main.py`, преобразует
+  ошибки Pydantic в `422`/`VALIDATION_ERROR`.
+- **(c) HTTP-коды для Google Sheets ошибок** изначально оба маппились на
+  `400`, что не соответствует семантике уже определённой в
+  `docs/04-services/REST_API.md`. Исправлено: `GoogleSheetsAccessError` →
+  `403`/`SHEET_ACCESS_DENIED`, `GoogleSheetsNotFoundError` → `404`/
+  `SHEET_NOT_FOUND`.
+- **(d) Generic `ParserError` в 500-ветке** изначально отправлял клиенту
+  сырой текст исключения, нарушая принцип изоляции (утечка внутренних
+  деталей реализации). Исправлено: клиенту возвращается фиксированное
+  обобщённое сообщение, полный текст исключения логируется server-side на
+  `warning`.
+- **(e) Покрытие error-путей** — тесты для 403, 404, 500/INTERNAL_ERROR и
+  400-ветки `RequestValidationError` не были предусмотрены в базовом
+  функционале. Добавлены.
+
 ## Найдено при реализации PR-006: ORM не знает про DB-side DEFAULT
 
 `SellerProduct`/`CatalogPublication` (Database First, `models.py`) не
