@@ -45,7 +45,7 @@ PRODUCTS_COLUMNS = [
     _Column("Наименование", required=True),
 ]
 
-SYSTEM_FIELDS = ["DocumentId", "DocumentVersion", "PublicationKey", "GeneratedAt", "GeneratedBy", "CatalogHash"]
+SYSTEM_FIELDS = ["TemplateVersion", "TemplateId"]
 SUPPORTED_TEMPLATE_VERSIONS = {"1.0"}
 
 
@@ -117,7 +117,7 @@ class StructureValidator:
                 # как отсутствующее поле, а не молчаливо пропускается дальше.
                 errors.append(ValidationError(sheet=sheet.name, message=f"Пустое значение служебного поля '{field_name}'"))
 
-        version = values.get("DocumentVersion")
+        version = values.get("TemplateVersion")
         if version is not None and version not in SUPPORTED_TEMPLATE_VERSIONS:
             errors.append(
                 ValidationError(
