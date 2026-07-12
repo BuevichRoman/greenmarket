@@ -79,10 +79,6 @@ class Mapper:
         values = {row[0]: (row[1] if len(row) > 1 else None) for row in system.rows if row and row[0] in SYSTEM_FIELDS}
         return PublicationMetadata(
             seller_id=seller_id,
-            document_id=values.get("DocumentId"),
-            document_version=values.get("DocumentVersion"),
-            publication_key=values.get("PublicationKey"),
-            generated_at=values.get("GeneratedAt"),
-            generated_by=values.get("GeneratedBy"),
-            catalog_hash=values.get("CatalogHash"),
+            template_version=values.get("TemplateVersion"),
+            template_id=values.get("TemplateId"),
         )

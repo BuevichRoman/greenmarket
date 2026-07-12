@@ -17,12 +17,8 @@ class PublicationProduct:
 @dataclass(frozen=True)
 class PublicationMetadata:
     seller_id: int
-    document_id: str | None
-    document_version: str | None
-    publication_key: str | None
-    generated_at: object
-    generated_by: str | None
-    catalog_hash: str | None
+    template_version: str | None
+    template_id: str | None
 
 
 @dataclass(frozen=True)
