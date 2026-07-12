@@ -44,10 +44,10 @@ class PublicationService:
         self.product_group_repository = product_group_repository
         self.catalog_publication_repository = catalog_publication_repository
 
-    def publish(self, model: PublicationModel, published_by: int) -> PublicationResult:
+    def publish(
+        self, model: PublicationModel, published_by: int, *, publication_key: str, catalog_hash: str
+    ) -> PublicationResult:
         seller_id = model.metadata.seller_id
-        publication_key = model.metadata.publication_key
-        catalog_hash = model.metadata.catalog_hash
 
         logger.info("Публикация начата: seller_id=%s publication_key=%s", seller_id, publication_key)
 
@@ -65,7 +65,7 @@ class PublicationService:
                 created, updated, deactivated = self._apply_catalog(model.products, seller_id)
 
             new_version = self.catalog_publication_repository.latest_version(seller_id) + 1
-            self.catalog_publication_repository.create(
+            publication = self.catalog_publication_repository.create(
                 seller_id=seller_id,
                 version=new_version,
                 publication_key=publication_key,
@@ -83,6 +83,7 @@ class PublicationService:
             )
             return PublicationResult(
                 success=True,
+                publication_id=publication.id,
                 created_count=created,
                 updated_count=updated,
                 deactivated_count=deactivated,
