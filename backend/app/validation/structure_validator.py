@@ -113,8 +113,8 @@ class StructureValidator:
             elif value is None or value == "":
                 # Сервер не должен доверять служебным данным файла без проверки
                 # (Catalog_Template.md, "Защита служебных данных") — пустое
-                # значение PublicationKey/CatalogHash и т.п. так же невалидно,
-                # как отсутствующее поле, а не молчаливо пропускается дальше.
+                # значение служебного поля так же невалидно, как отсутствующее,
+                # а не молчаливо пропускается дальше.
                 errors.append(ValidationError(sheet=sheet.name, message=f"Пустое значение служебного поля '{field_name}'"))
 
         version = values.get("TemplateVersion")
