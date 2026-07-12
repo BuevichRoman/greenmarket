@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     db_name: str
     db_user: str
     db_password: str
+    google_service_account_file: str
+    google_sheets_timeout_seconds: float = 10.0
 
 
 settings = Settings()

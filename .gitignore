@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .env
+
+# Google Service Account credentials — never commit
+google-service-account*.json

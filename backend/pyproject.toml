@@ -11,6 +11,9 @@ dependencies = [
     "pymysql",
     "openpyxl",
     "python-multipart",
+    "google-api-python-client",
+    "google-auth",
+    "google-auth-httplib2",
 ]
 
 [dependency-groups]
