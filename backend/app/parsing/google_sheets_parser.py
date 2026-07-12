@@ -55,7 +55,7 @@ class GoogleSheetsParser:
 
         sheets = [
             RawSheet(name=title, index=index, rows=value_range.get("values", []))
-            for index, (title, value_range) in enumerate(zip(sheet_titles, response["valueRanges"]))
+            for index, (title, value_range) in enumerate(zip(sheet_titles, response["valueRanges"], strict=True))
         ]
         return RawWorkbook(source=spreadsheet_id, sheets=sheets)
 
