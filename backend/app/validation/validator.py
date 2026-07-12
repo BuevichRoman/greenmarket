@@ -26,12 +26,12 @@ class Validator:
         self.semantic_validator = semantic_validator
         self.business_validator = business_validator
 
-    def validate(self, workbook: RawWorkbook, seller_id: int) -> ValidationResult:
+    def validate(self, workbook: RawWorkbook) -> ValidationResult:
         structure_result = self.structure_validator.validate(workbook)
         if not structure_result.is_valid:
             return structure_result
 
         errors = []
         errors += self.semantic_validator.validate(workbook).errors
-        errors += self.business_validator.validate(workbook, seller_id).errors
+        errors += self.business_validator.validate(workbook).errors
         return ValidationResult(errors=errors)
