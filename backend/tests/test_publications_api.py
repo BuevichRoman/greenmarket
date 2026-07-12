@@ -184,6 +184,32 @@ def test_generic_google_api_error_returns_500(committing_session):
     assert response.json()["error"]["code"] == "GOOGLE_API_ERROR"
 
 
+def test_unexpected_construction_failure_returns_500_internal_error(committing_session):
+    # Не переопределяем get_google_sheets_parser_resource — PublicationUseCase
+    # строит настоящий GoogleSheetsParser, который падает на несуществующем
+    # файле Service Account (settings.google_service_account_file). Это
+    # регрессионный тест на фикс "конструктор PublicationUseCase внутри try":
+    # без него сюда бы утекло сырое исключение вместо конверта {"error": ...}.
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма сбой конструктора")
+    user_id = insert_user(committing_session, name="Admin")
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-7"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"]["code"] == "INTERNAL_ERROR"
+    assert "google-service-account" not in body["error"]["message"]
+    assert ".json" not in body["error"]["message"]
+
+
 def test_spreadsheet_id_is_extracted_from_sheet_url(committing_session):
     from fastapi.testclient import TestClient
 
