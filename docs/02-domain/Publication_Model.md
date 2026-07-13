@@ -15,7 +15,7 @@
 
 ## Источник данных
 
-Единственным источником данных является статическая таблица Google Sheets, созданная продавцом как копия шаблона GreenMarket (CR-001, [`docs/06-development/adr/0002-static-google-sheets-template.md`](../06-development/adr/0002-static-google-sheets-template.md)) — точный формат определён в [Catalog_Template.md](Catalog_Template.md). Publication Service не предоставляет интерфейс ручного редактирования каталога и не пишет в исходную таблицу.
+Единственным источником данных является статическая таблица Google Sheets, созданная продавцом как копия шаблона GreenMarket (CR-001, [`docs/06-development/adr/0002-static-google-sheets-template.md`](../06-development/adr/0002-static-google-sheets-template.md)) — точный формат определён в [Catalog_Template.md](Catalog_Template.md). Нормативный файл шаблона — `docs/02-domain/templates/catalog_template_v1.xlsx` (PR-008); Google Sheets, которую заполняет продавец, — его производная копия. Publication Service не предоставляет интерфейс ручного редактирования каталога и не пишет в исходную таблицу.
 
 ## Publication Service
 
