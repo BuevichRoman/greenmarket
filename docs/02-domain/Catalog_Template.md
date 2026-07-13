@@ -106,4 +106,4 @@ Google Drive и может быть пересоздана из него в лю
 
 ## Связь с другими документами
 
-Модель публикации определяется документом [Publication_Model.md](Publication_Model.md). Серверная реализация определяется документом [Publication_Service.md](../04-services/Publication_Service.md). Алгоритм серверной обработки публикации определяется документом [Publication_Workflow.md](../04-services/Publication_Workflow.md). Использование в интерфейсе продавца — [Seller_MVP.md](../05-ui/Seller_MVP.md).
+Модель публикации определяется документом [Publication_Model.md](Publication_Model.md). Серверная реализация определяется документом [Publication_Service.md](../04-services/Publication_Service.md). Алгоритм серверной обработки публикации определяется документом [Publication_Workflow.md](../04-services/Publication_Workflow.md). Использование в интерфейсе продавца — [Seller_MVP.md](../05-ui/Seller_MVP.md). Место листа «Каталог» в составе рабочей книги продавца — [Seller_Workspace.md](../05-ui/Seller_Workspace.md).

@@ -69,4 +69,6 @@ Seller MVP считается завершённым, если продавец 
 
 ## Связь с другими документами
 
-Publication Service определяется документом [Publication_Service.md](../04-services/Publication_Service.md). REST API определяется документом [REST_API.md](../04-services/REST_API.md). Модель публикации определяется документом [Publication_Model.md](../02-domain/Publication_Model.md). Шаблон каталога определяется документом [Catalog_Template.md](../02-domain/Catalog_Template.md).
+Publication Service определяется документом [Publication_Service.md](../04-services/Publication_Service.md). REST API определяется документом [REST_API.md](../04-services/REST_API.md). Модель публикации определяется документом [Publication_Model.md](../02-domain/Publication_Model.md). Шаблон каталога определяется документом [Catalog_Template.md](../02-domain/Catalog_Template.md). Подготовка данных каталога и профиля продавцом — в рабочей книге Google Sheets, см. [Seller_Workspace.md](Seller_Workspace.md) (ТЗ-010).
+
+> Примечание: разделы «Экран 2. Рабочий каталог» и «Экран 3. Публикация» выше описывают скачивание/загрузку Excel-файла через Seller Cabinet — формулировка предшествует переходу на статический шаблон Google Sheets (CR-001, PR-007/008), где сервер читает рабочую книгу по `spreadsheet_id`/`sheet_url` через Service Account и не принимает файл напрямую. Экраны требуют сверки с этим документом; не исправлено в рамках ТЗ-010.
