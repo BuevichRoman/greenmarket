@@ -18,7 +18,7 @@ README
 Vision → Scope → Roadmap        (docs/00-overview, docs/01-overview)
   │
   ▼
-Domain Model → Catalog Model → Publication Model → Catalog Template   (docs/02-domain)
+Domain Model → Catalog Model → Publication Model → Catalog Template → Seller Profile   (docs/02-domain)
   │
   ▼
 Database                        (docs/03-database)
@@ -74,6 +74,7 @@ GreenMarket реализуется поверх существующей пла�
 │   │   ├── Catalog_Model.md            — единый каталог vs каталоги продавцов
 │   │   ├── Publication_Model.md        — жизненный цикл публикации
 │   │   ├── Catalog_Template.md         — формат шаблона рабочего каталога (часть модели данных)
+│   │   ├── Seller_Profile.md           — доменная модель продавца (PR-009), закрывает OQ-003
 │   │   └── templates/
 │   │       └── catalog_template_v1.xlsx — нормативный артефакт шаблона (PR-008), см. Catalog_Template.md
 │   ├── 03-database/
