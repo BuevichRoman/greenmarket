@@ -91,6 +91,31 @@ def test_price_and_stock_columns_have_non_negative_validation():
     assert any(ref.startswith("G2") for ref in refs)
 
 
+def test_group_product_price_stock_validations_hard_enforce():
+    wb = build_workbook()
+    ws = wb[CATALOG_SHEET]
+    hard_enforced_ranges = {"C2", "D2", "E2", "G2"}
+    for dv in ws.data_validations.dataValidation:
+        sqref = str(dv.sqref)
+        if any(sqref.startswith(prefix) for prefix in hard_enforced_ranges):
+            assert dv.showErrorMessage is True, f"{sqref} должен блокировать некорректный ввод"
+
+
+def test_unit_validation_is_soft_warning():
+    wb = build_workbook()
+    ws = wb[CATALOG_SHEET]
+    unit_dv = next(dv for dv in ws.data_validations.dataValidation if str(dv.sqref).startswith("F2"))
+    assert unit_dv.showErrorMessage is True
+    assert unit_dv.errorStyle == "warning"
+
+
+def test_product_dropdown_includes_prochee_placeholder():
+    wb = build_workbook()
+    ws = wb[CATALOG_SHEET]
+    product_dv = next(dv for dv in ws.data_validations.dataValidation if str(dv.sqref).startswith("D2"))
+    assert "Прочее" in product_dv.formula1
+
+
 def test_group_and_product_dropdowns_are_within_excel_inline_limit():
     wb = build_workbook()
     ws = wb[CATALOG_SHEET]

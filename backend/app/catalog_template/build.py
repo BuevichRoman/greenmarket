@@ -93,25 +93,33 @@ def _quoted_list(values: list[str]) -> str:
 def _apply_catalog_validation(ws: Worksheet) -> None:
     last_row = max(ws.max_row, _MAX_DATA_ROW)
 
-    group_validation = DataValidation(type="list", formula1=_quoted_list(GROUP_NAMES_FOR_DROPDOWN), allow_blank=True)
+    group_validation = DataValidation(
+        type="list", formula1=_quoted_list(GROUP_NAMES_FOR_DROPDOWN), allow_blank=True, showErrorMessage=True
+    )
     group_validation.errorTitle = "Неизвестная товарная группа"
     group_validation.error = "Выберите товарную группу из списка (см. лист «Товарные группы»)"
     ws.add_data_validation(group_validation)
     group_validation.add(f"C2:C{last_row}")
 
-    product_validation = DataValidation(type="list", formula1=_quoted_list(PRODUCT_NAMES_FOR_DROPDOWN), allow_blank=True)
+    product_validation = DataValidation(
+        type="list", formula1=_quoted_list(PRODUCT_NAMES_FOR_DROPDOWN), allow_blank=True, showErrorMessage=True
+    )
     product_validation.errorTitle = "Неизвестная товарная позиция"
     product_validation.error = "Выберите товарную позицию из списка или «Прочее» (см. лист «Товарные позиции»)"
     ws.add_data_validation(product_validation)
     product_validation.add(f"D2:D{last_row}")
 
-    price_validation = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
+    price_validation = DataValidation(
+        type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True, showErrorMessage=True
+    )
     price_validation.errorTitle = "Некорректная цена"
     price_validation.error = "Цена не может быть отрицательной"
     ws.add_data_validation(price_validation)
     price_validation.add(f"E2:E{last_row}")
 
-    stock_validation = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
+    stock_validation = DataValidation(
+        type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True, showErrorMessage=True
+    )
     stock_validation.errorTitle = "Некорректный остаток"
     stock_validation.error = "Остаток не может быть отрицательным"
     ws.add_data_validation(stock_validation)
