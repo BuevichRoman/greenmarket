@@ -23,7 +23,7 @@ Parser/Validator/Mapper (`backend/tests/test_catalog_template_artifact.py`) и
 Google Drive и может быть пересоздана из него в любой момент. Google-таблица
 источником истины не является.
 
-Примеры заполненного шаблона (для разработчиков и колле-ревью, не для
+Примеры заполненного шаблона (для разработчиков и код-ревью, не для
 продавцов): [`templates/examples/catalog_template_v1_partial.xlsx`](templates/examples/catalog_template_v1_partial.xlsx),
 [`templates/examples/catalog_template_v1_full.xlsx`](templates/examples/catalog_template_v1_full.xlsx).
 
