@@ -211,4 +211,4 @@ Seller Profile не определяет поисковый механизм (п
 - `README` — добавить ссылку на `docs/02-domain/Seller_Profile.md`.
 - `Repository Map` — добавить документ в карту репозитория; при необходимости зарезервировать место под будущий `Market.md`.
 
-Отображение данных Seller Profile в рабочей книге продавца (лист «Профиль продавца», только для чтения) определяется [Seller_Workspace.md](../05-ui/Seller_Workspace.md) (ТЗ-010).
+[Seller_Workspace.md](../05-ui/Seller_Workspace.md) (ТЗ-010) фиксирует, что рабочая книга продавца (Google Sheets) не отображает и не редактирует Seller Profile в Stage 1 — карточка продавца в Customer UI строится из этой модели напрямую, отдельного листа «Профиль продавца» в Seller Workspace v1.0 нет (зарезервировано на будущее).
