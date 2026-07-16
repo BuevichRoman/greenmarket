@@ -97,6 +97,24 @@ def test_non_numeric_stock_reports_error(session):
     assert any(e.column == "Остаток" for e in result.errors)
 
 
+def test_fully_empty_row_is_ignored(session):
+    # Google Sheets API отдаёт отформатированные, но незаполненные строки шаблона
+    # (dropdown/border без данных) как строки из пустых значений — такая строка не
+    # является товаром продавца и не должна порождать ошибки валидации.
+    empty_row = [None] * len(HEADER)
+    workbook = make_workbook(
+        [
+            [1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", ""],
+            empty_row,
+            [2, "Лимоны оптом", "Цитрусовые", "Лимон", 79.0, "кг", 5, "", ""],
+        ]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert result.is_valid
+
+
 def test_empty_catalog_sheet_has_no_errors(session):
     workbook = make_workbook([])
 
