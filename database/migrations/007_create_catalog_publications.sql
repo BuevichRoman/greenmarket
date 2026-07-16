@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 | GreenMarket
 |--------------------------------------------------------------------------
-| Migration : 005_create_catalog_publications.sql
+| Migration : 007_create_catalog_publications.sql
 | Purpose   : Журнал публикаций рабочих каталогов продавцов
 | DBMS      : MySQL Community Server 8.0.16+
 |--------------------------------------------------------------------------
@@ -32,8 +32,8 @@ CREATE TABLE CatalogPublication
         DEFAULT CURRENT_TIMESTAMP
         COMMENT 'Дата публикации (UTC)',
 
-    published_by     BIGINT UNSIGNED NOT NULL
-        COMMENT 'Пользователь, выполнивший публикацию',
+    published_by     INT NOT NULL
+        COMMENT 'Пользователь, выполнивший публикацию (users.id_user в aristotel_taxi)',
 
     PRIMARY KEY (id),
 
@@ -48,7 +48,7 @@ CREATE TABLE CatalogPublication
         ON DELETE RESTRICT ON UPDATE RESTRICT,
 
     CONSTRAINT fk_CatalogPublication_user
-        FOREIGN KEY (published_by) REFERENCES User(id)
+        FOREIGN KEY (published_by) REFERENCES users(id_user)
         ON DELETE RESTRICT ON UPDATE RESTRICT
 )
 ENGINE = InnoDB
@@ -77,8 +77,10 @@ COMMENT = 'Журнал публикаций рабочих каталогов G
 | 6.  Application Rule: PublicationKey становится недействительным сразу
 |     после успешной публикации; новый ключ создаётся при генерации
 |     следующего рабочего каталога.
-| 7.  User — системная сущность платформы, FK fk_CatalogPublication_user —
-|     ON DELETE RESTRICT (деактивация пользователей — через User Service).
+| 7.  published_by ссылается напрямую на users(id_user) платформенной БД
+|     aristotel_taxi (отдельной таблицы User в GreenMarket нет), FK
+|     fk_CatalogPublication_user — ON DELETE RESTRICT (деактивация
+|     пользователей — на стороне платформы).
 | 8.  Application Rule: после создания запись журнала неизменяема —
 |     Publication Service выполняет только INSERT (UPDATE/DELETE не
 |     используются). Для защиты на уровне СУБД рекомендуется отдельный
