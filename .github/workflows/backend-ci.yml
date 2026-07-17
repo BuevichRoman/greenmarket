@@ -44,7 +44,7 @@ jobs:
       - name: Apply schema (platform stub + migrations + seeders)
         run: |
           mysql -h127.0.0.1 -uroot -pgreenmarket_ci < tests/fixtures/platform_stub.sql
-          for f in ../database/migrations/00{1,2,3,4,5,6}_*.sql; do
+          for f in ../database/migrations/*.sql; do
             mysql -h127.0.0.1 -uroot -pgreenmarket_ci greenmarket < "$f"
           done
           for f in ../database/seeders/00{1,2}_*.sql; do

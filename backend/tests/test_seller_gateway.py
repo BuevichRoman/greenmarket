@@ -4,12 +4,13 @@ from app.platform.seller_gateway import SellerGateway
 
 
 def insert_seller(session, *, name: str, publication_key: str | None, catalog_hash: str | None) -> int:
+    user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
     result = session.execute(
         text(
-            "INSERT INTO Seller (name, current_publication_key, current_catalog_hash) "
-            "VALUES (:name, :publication_key, :catalog_hash)"
+            "INSERT INTO Seller (user_id, current_publication_key, current_catalog_hash) "
+            "VALUES (:user_id, :publication_key, :catalog_hash)"
         ),
-        {"name": name, "publication_key": publication_key, "catalog_hash": catalog_hash},
+        {"user_id": user_id, "publication_key": publication_key, "catalog_hash": catalog_hash},
     )
     return result.lastrowid
 

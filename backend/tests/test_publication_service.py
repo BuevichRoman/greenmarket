@@ -12,17 +12,18 @@ from app.publication.publication_service import PublicationService
 
 
 def insert_seller(session, *, name: str, publication_key: str | None = None, catalog_hash: str | None = None) -> int:
+    user_id = insert_user(session, name=name)
     return session.execute(
         text(
-            "INSERT INTO Seller (name, current_publication_key, current_catalog_hash) "
-            "VALUES (:name, :publication_key, :catalog_hash)"
+            "INSERT INTO Seller (user_id, current_publication_key, current_catalog_hash) "
+            "VALUES (:user_id, :publication_key, :catalog_hash)"
         ),
-        {"name": name, "publication_key": publication_key, "catalog_hash": catalog_hash},
+        {"user_id": user_id, "publication_key": publication_key, "catalog_hash": catalog_hash},
     ).lastrowid
 
 
 def insert_user(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO User (name) VALUES (:name)"), {"name": name}).lastrowid
+    return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
 
 
 def insert_product_group(session, *, name: str) -> int:

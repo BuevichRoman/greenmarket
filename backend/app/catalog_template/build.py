@@ -24,6 +24,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.catalog_template.data import (
     COLUMN_HINTS,
+    COLUMN_WIDTHS,
     GROUP_NAMES_FOR_DROPDOWN,
     GROUP_ROWS,
     INSTRUCTION_LINES,
@@ -77,6 +78,7 @@ def _build_catalog_sheet(workbook: Workbook, catalog_rows: list[list[object]]) -
             cell.fill = _REQUIRED_FILL
         else:
             cell.fill = _OPTIONAL_FILL
+        ws.column_dimensions[cell.column_letter].width = COLUMN_WIDTHS[column.name]
 
     for row_index, row in enumerate(catalog_rows, start=2):
         for col_index, value in enumerate(row, start=1):
@@ -84,6 +86,10 @@ def _build_catalog_sheet(workbook: Workbook, catalog_rows: list[list[object]]) -
 
     _apply_catalog_validation(ws)
     ws.column_dimensions["A"].hidden = True
+    ws.freeze_panes = "A2"
+    last_row = max(ws.max_row, _MAX_DATA_ROW)
+    last_column_letter = ws.cell(row=1, column=len(CATALOG_COLUMNS)).column_letter
+    ws.auto_filter.ref = f"A1:{last_column_letter}{last_row}"
 
 
 def _quoted_list(values: list[str]) -> str:

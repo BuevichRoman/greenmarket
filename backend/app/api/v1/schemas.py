@@ -30,10 +30,17 @@ class PublicationResponse(BaseModel):
     message: str
 
 
+class ValidationErrorDetail(BaseModel):
+    sheet: str
+    message: str
+    row: int | None = None
+    column: str | None = None
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
-    details: list[str] = []
+    details: list[ValidationErrorDetail] = []
 
 
 class ErrorResponse(BaseModel):

@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 | GreenMarket
 |--------------------------------------------------------------------------
-| Migration : 003_create_seller_products.sql
+| Migration : 005_create_seller_products.sql
 | Purpose   : Создание рабочего каталога продавцов
 | DBMS      : MySQL Community Server 8.0.16+
 |--------------------------------------------------------------------------
@@ -43,8 +43,8 @@ CREATE TABLE SellerProduct
     moderation_status   VARCHAR(30) NOT NULL DEFAULT 'WAIT_PRODUCT'
         COMMENT 'Статус модерации',
 
-    moderator_id        BIGINT UNSIGNED NULL
-        COMMENT 'Администратор, выполняющий модерацию',
+    moderator_id        INT NULL
+        COMMENT 'Администратор, выполняющий модерацию (users.id_user в aristotel_taxi)',
 
     moderated_at        DATETIME NULL
         COMMENT 'Дата модерации (UTC)',
@@ -77,7 +77,7 @@ CREATE TABLE SellerProduct
         ON DELETE RESTRICT ON UPDATE RESTRICT,
 
     CONSTRAINT fk_SellerProduct_moderator
-        FOREIGN KEY (moderator_id) REFERENCES User(id)
+        FOREIGN KEY (moderator_id) REFERENCES users(id_user)
         ON DELETE RESTRICT ON UPDATE RESTRICT,
 
     CONSTRAINT chk_SellerProduct_price CHECK (price >= 0),
@@ -106,9 +106,10 @@ COMMENT = 'Рабочий каталог товаров продавцов';
 |     Физическое удаление SellerProduct не используется.
 | 6.  fk_SellerProduct_product завершает правило из 002_create_products.sql:
 |     удаление Product невозможно, пока существуют связанные товары.
-| 7.  User — системная сущность платформы, FK fk_SellerProduct_moderator —
-|     ON DELETE RESTRICT (физическое удаление пользователей не
-|     предусматривается, деактивация — через User Service).
+| 7.  moderator_id ссылается напрямую на users(id_user) платформенной БД
+|     aristotel_taxi (отдельной таблицы User в GreenMarket нет), FK
+|     fk_SellerProduct_moderator — ON DELETE RESTRICT (физическое удаление
+|     пользователей не предусматривается, деактивация — на стороне платформы).
 | 8.  Application Rule: при изменении продавцом product_id Publication
 |     Service автоматически переводит запись в WAIT_PRODUCT (эта миграция
 |     только предоставляет поля хранения, поведение не реализует).

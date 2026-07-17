@@ -18,6 +18,10 @@ def _cell(row: list[object], index: int) -> object:
     return row[index] if index < len(row) else None
 
 
+def _row_is_empty(row: list[object]) -> bool:
+    return all(cell is None or cell == "" for cell in row)
+
+
 class SemanticValidator:
     """Проверяет значения строк листа «Каталог»: обязательные поля не пусты,
     цена/остаток — неотрицательные числа, товарная группа/позиция существуют
@@ -36,6 +40,11 @@ class SemanticValidator:
 
         errors: list[ValidationError] = []
         for row_number, row in enumerate(catalog.rows[1:], start=2):
+            # Google Sheets API отдаёт отформатированные, но незаполненные строки
+            # шаблона (dropdown/border без данных) как строки из пустых значений —
+            # такая строка не является товаром продавца.
+            if _row_is_empty(row):
+                continue
             errors += self._validate_row(catalog.name, row_number, row)
         return ValidationResult(errors=errors)
 

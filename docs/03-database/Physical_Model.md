@@ -11,9 +11,9 @@
 
 Подсистема каталога состоит из следующих сущностей.
 
-Платформенные таблицы (существуют на платформе iBronevik, не создаются заново): Seller, User, Photo.
+Платформенная таблица (существует на платформе, не создаётся заново): `users` (в БД `aristotel_taxi`). Отдельной таблицы User в GreenMarket нет — поля `moderator_id` (SellerProduct) и `published_by` (CatalogPublication) ссылаются напрямую на `users.id_user`.
 
-Новые таблицы: ProductGroup, Product, SellerProduct, SellerProductPhoto, CatalogPublication.
+Новые таблицы GreenMarket: ProductGroup, Product, Seller, Photo, SellerProduct, SellerProductPhoto, CatalogPublication.
 
 ## Общая схема
 
@@ -92,9 +92,19 @@ Photo
 
 ## Seller
 
-Используется существующая платформенная таблица. Добавляются поля: `current_catalog_version`, `current_publication_key`, `current_catalog_hash`.
+**Назначение:** техническая учётная запись продавца GreenMarket и хранение текущего состояния опубликованного каталога. История публикаций хранится исключительно в CatalogPublication.
 
-**Назначение:** хранение текущего состояния опубликованного каталога продавца. История публикаций хранится исключительно в CatalogPublication.
+**Основные поля:** `id`, `user_id` (ссылка на `users.id_user` платформенной БД, связь 1:1), `is_active`, `created_at`, `updated_at`, `current_catalog_version`, `current_publication_key`, `current_catalog_hash`.
+
+**Особенности:** новая таблица GreenMarket, не изменяет платформенную `users`; отделяет специфичное для продавца состояние публикации от учётной записи пользователя платформы.
+
+## Photo
+
+**Назначение:** метаданные фотографий товаров продавцов. Временное решение Stage 1 — сами файлы хранятся в S3, таблица хранит только ключ объекта.
+
+**Основные поля:** `id`, `s3_key`, `created_at`.
+
+**Особенности:** новая таблица GreenMarket; физическое удаление не запрещено (в отличие от бизнес-сущностей каталога) — неиспользуемые фото может очищать отдельный сервис обслуживания.
 
 ## Основные связи
 
@@ -121,6 +131,7 @@ Photo
 | SellerProductPhoto | Publication Service |
 | CatalogPublication | Publication Service |
 | Seller | Platform |
+| Photo | Publication Service |
 
 ## Основные принципы
 
