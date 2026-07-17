@@ -19,6 +19,18 @@ class SellerProductRepository:
             .all()
         )
 
+    def list_published_for_products(self, product_ids: list[int]) -> list[SellerProduct]:
+        if not product_ids:
+            return []
+        return (
+            self.session.query(SellerProduct)
+            .filter(
+                SellerProduct.product_id.in_(product_ids),
+                SellerProduct.is_published.is_(True),
+            )
+            .all()
+        )
+
     def create(
         self,
         *,
