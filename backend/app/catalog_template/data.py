@@ -11,6 +11,18 @@ app.validation.structure_validator; здесь только данные для 
 TEMPLATE_VERSION = "1.0"
 TEMPLATE_ID = "catalog-template-v1"
 
+COLUMN_WIDTHS = {
+    "SellerProductId": 16,
+    "Наименование продавца": 30,
+    "Товарная группа GreenMarket": 26,
+    "Товарная позиция GreenMarket": 26,
+    "Цена": 10,
+    "Единица продажи": 16,
+    "Остаток": 10,
+    "Описание": 30,
+    "Дополнительные характеристики": 32,
+}
+
 COLUMN_HINTS = {
     "SellerProductId": (
         "Служебное поле, скрыто. Не заполняется продавцом — сервер присваивает "

@@ -135,3 +135,24 @@ def test_build_workbook_accepts_prefilled_catalog_rows():
     row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", ""]
     wb = build_workbook(catalog_rows=[row])
     assert _sheet_values(wb[CATALOG_SHEET])[1] == row
+
+
+def test_catalog_header_row_is_frozen():
+    wb = build_workbook()
+    assert wb[CATALOG_SHEET].freeze_panes == "A2"
+
+
+def test_catalog_sheet_has_autofilter_over_full_data_range():
+    wb = build_workbook()
+    ws = wb[CATALOG_SHEET]
+    last_row = max(ws.max_row, 1000)
+    assert str(ws.auto_filter.ref) == f"A1:I{last_row}"
+
+
+def test_catalog_columns_have_content_fitting_width():
+    wb = build_workbook()
+    ws = wb[CATALOG_SHEET]
+    for col_index, column in enumerate(CATALOG_COLUMNS, start=1):
+        letter = ws.cell(row=1, column=col_index).column_letter
+        width = ws.column_dimensions[letter].width
+        assert width is not None and width >= len(column.name) * 0.9, f"{column.name}: width={width}"

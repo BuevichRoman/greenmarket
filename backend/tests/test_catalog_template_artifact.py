@@ -67,6 +67,10 @@ def test_master_template_retains_formatting_and_protection():
         if any(sqref.startswith(prefix) for prefix in hard_enforced_ranges):
             assert dv.showErrorMessage is True
 
+    assert catalog_sheet.freeze_panes == "A2"
+    assert str(catalog_sheet.auto_filter.ref) == "A1:I1000"
+    assert catalog_sheet.column_dimensions["B"].width >= len("Наименование продавца") * 0.9
+
 
 def test_partial_example_passes_full_pipeline(session):
     workbook = ExcelParser().parse(PARTIAL_EXAMPLE_PATH)

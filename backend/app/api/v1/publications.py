@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.schemas import ErrorDetail, ErrorResponse, PublicationRequest, PublicationResponse
+from app.api.v1.schemas import ErrorDetail, ErrorResponse, PublicationRequest, PublicationResponse, ValidationErrorDetail
 from app.application.publication_use_case import PublicationUseCase, PublicationValidationError
 from app.infrastructure.database import get_session
 from app.parsing.exceptions import GoogleSheetsAccessError, GoogleSheetsNotFoundError, ParserError
@@ -21,7 +21,7 @@ def get_google_sheets_parser_resource():
     return None
 
 
-def _error(status_code: int, code: str, message: str, details: list[str] | None = None) -> JSONResponse:
+def _error(status_code: int, code: str, message: str, details: list[ValidationErrorDetail] | None = None) -> JSONResponse:
     payload = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details or []))
     return JSONResponse(status_code=status_code, content=payload.model_dump())
 
@@ -47,7 +47,10 @@ def create_publication(
             422,
             "VALIDATION_ERROR",
             "Каталог не прошёл валидацию",
-            details=[e.message for e in exc.validation_result.errors],
+            details=[
+                ValidationErrorDetail(sheet=e.sheet, row=e.row, column=e.column, message=e.message)
+                for e in exc.validation_result.errors
+            ],
         )
     except DuplicatePublicationError as exc:
         return _error(409, "DUPLICATE_PUBLICATION", str(exc))

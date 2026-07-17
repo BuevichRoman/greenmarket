@@ -127,6 +127,29 @@ def test_validation_errors_return_422_with_details(committing_session):
     assert len(response.json()["error"]["details"]) > 0
 
 
+def test_validation_errors_include_sheet_row_column(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма ошибка валидации 2")
+    user_id = insert_user(committing_session, name="Admin")
+    override_session(committing_session)
+    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]]))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-8"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    detail = response.json()["error"]["details"][0]
+    assert detail["sheet"] == "Каталог"
+    assert detail["row"] == 2
+    assert detail["column"] == "Цена"
+    assert "отрицательным" in detail["message"]
+
+
 def test_sheet_not_found_returns_404(committing_session):
     from fastapi.testclient import TestClient
 
