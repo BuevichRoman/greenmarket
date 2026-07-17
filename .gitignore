@@ -6,6 +6,7 @@ kwork/
 CLAUDE.md
 DIAGONST/
 platform_core/
+docs/design-system/
 .venv/
 __pycache__/
 *.pyc
