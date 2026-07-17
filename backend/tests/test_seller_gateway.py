@@ -53,3 +53,26 @@ def test_update_current_publication_overwrites_key_hash_and_version(session):
         text("SELECT current_catalog_version FROM Seller WHERE id = :seller_id"), {"seller_id": seller_id}
     ).scalar()
     assert version == 3
+
+
+def test_list_active_seller_ids_returns_only_active(session):
+    active_id = insert_seller(session, name="Активный продавец", publication_key=None, catalog_hash=None)
+    session.execute(text("UPDATE Seller SET is_active = TRUE WHERE id = :id"), {"id": active_id})
+    inactive_id = insert_seller(session, name="Неактивный продавец", publication_key=None, catalog_hash=None)
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": inactive_id})
+
+    result = SellerGateway(session).list_active_seller_ids([active_id, inactive_id])
+
+    assert result == {active_id}
+
+
+def test_list_active_seller_ids_returns_empty_set_for_empty_input(session):
+    assert SellerGateway(session).list_active_seller_ids([]) == set()
+
+
+def test_list_active_seller_ids_ignores_unknown_ids(session):
+    active_id = insert_seller(session, name="Продавец для проверки unknown", publication_key=None, catalog_hash=None)
+
+    result = SellerGateway(session).list_active_seller_ids([active_id, 999_999])
+
+    assert result == {active_id}

@@ -1,4 +1,4 @@
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 
@@ -43,3 +43,12 @@ class SellerGateway:
                 "catalog_version": catalog_version,
             },
         )
+
+    def list_active_seller_ids(self, seller_ids: list[int]) -> set[int]:
+        if not seller_ids:
+            return set()
+        stmt = text("SELECT id FROM Seller WHERE id IN :seller_ids AND is_active = TRUE").bindparams(
+            bindparam("seller_ids", expanding=True)
+        )
+        rows = self.session.execute(stmt, {"seller_ids": seller_ids}).all()
+        return {row[0] for row in rows}
