@@ -4,7 +4,8 @@ from app.infrastructure.repositories.seller_product_repository import SellerProd
 
 
 def insert_seller(session, *, name: str) -> int:
-    result = session.execute(text("INSERT INTO Seller (name) VALUES (:name)"), {"name": name})
+    user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
+    result = session.execute(text("INSERT INTO Seller (user_id) VALUES (:user_id)"), {"user_id": user_id})
     return result.lastrowid
 
 

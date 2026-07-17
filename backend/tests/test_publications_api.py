@@ -21,11 +21,12 @@ SYSTEM_ROWS = [["TemplateVersion", "1.0"], ["TemplateId", "template-1"]]
 
 
 def insert_seller(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO Seller (name) VALUES (:name)"), {"name": name}).lastrowid
+    user_id = insert_user(session, name=name)
+    return session.execute(text("INSERT INTO Seller (user_id) VALUES (:user_id)"), {"user_id": user_id}).lastrowid
 
 
 def insert_user(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO User (name) VALUES (:name)"), {"name": name}).lastrowid
+    return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
 
 
 def make_resource(catalog_rows, **overrides) -> FakeSheetsResource:

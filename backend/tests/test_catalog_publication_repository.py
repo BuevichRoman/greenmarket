@@ -4,9 +4,12 @@ from app.infrastructure.repositories.catalog_publication_repository import Catal
 
 
 def insert_seller_and_user(session, *, name: str) -> tuple[int, int]:
-    seller_id = session.execute(text("INSERT INTO Seller (name) VALUES (:name)"), {"name": name}).lastrowid
-    user_id = session.execute(text("INSERT INTO User (name) VALUES (:name)"), {"name": "Admin"}).lastrowid
-    return seller_id, user_id
+    seller_user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
+    seller_id = session.execute(
+        text("INSERT INTO Seller (user_id) VALUES (:user_id)"), {"user_id": seller_user_id}
+    ).lastrowid
+    admin_user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": "Admin"}).lastrowid
+    return seller_id, admin_user_id
 
 
 def test_latest_version_is_zero_when_seller_never_published(session):
