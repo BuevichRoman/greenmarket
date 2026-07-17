@@ -12,3 +12,11 @@ class ProductGroupRepository:
 
     def find_by_name(self, name: str) -> ProductGroup | None:
         return self.session.query(ProductGroup).filter(ProductGroup.name == name).first()
+
+    def list_active(self) -> list[ProductGroup]:
+        return (
+            self.session.query(ProductGroup)
+            .filter(ProductGroup.is_active.is_(True))
+            .order_by(ProductGroup.sort_order, ProductGroup.name)
+            .all()
+        )
