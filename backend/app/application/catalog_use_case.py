@@ -60,3 +60,48 @@ class CatalogUseCase:
             }
             for group in groups
         ]
+
+    def list_products(
+        self,
+        *,
+        group_id: int | None = None,
+        search: str | None = None,
+        sort: str = "name",
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[dict], int]:
+        products = self.product_repository.list_active(group_id=group_id, search=search)
+        offers_by_product = self._visible_offers_by_product([p.id for p in products])
+        visible_products = [p for p in products if p.id in offers_by_product]
+
+        cheapest_offer_by_product = {
+            product_id: min(offers, key=lambda o: o.price)
+            for product_id, offers in offers_by_product.items()
+        }
+
+        if sort == "price":
+            visible_products.sort(key=lambda p: cheapest_offer_by_product[p.id].price)
+        else:
+            visible_products.sort(key=lambda p: p.name)
+
+        total = len(visible_products)
+        start = (page - 1) * limit
+        page_items = visible_products[start : start + limit]
+
+        cheapest_offer_ids = [cheapest_offer_by_product[p.id].id for p in page_items]
+        photos_by_seller_product = self.photo_gateway.list_by_seller_products(cheapest_offer_ids)
+
+        items = []
+        for product in page_items:
+            offers = offers_by_product[product.id]
+            cheapest = cheapest_offer_by_product[product.id]
+            items.append(
+                {
+                    "id": product.id,
+                    "name": product.name,
+                    "min_price": cheapest.price,
+                    "offer_count": len(offers),
+                    "photos": photos_by_seller_product.get(cheapest.id, []),
+                }
+            )
+        return items, total
