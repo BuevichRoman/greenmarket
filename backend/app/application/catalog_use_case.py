@@ -75,7 +75,7 @@ class CatalogUseCase:
         visible_products = [p for p in products if p.id in offers_by_product]
 
         cheapest_offer_by_product = {
-            product_id: min(offers, key=lambda o: o.price)
+            product_id: min(offers, key=lambda o: (o.price, o.id))
             for product_id, offers in offers_by_product.items()
         }
 
@@ -116,7 +116,7 @@ class CatalogUseCase:
         if not offers:
             return None
 
-        offers_sorted = sorted(offers, key=lambda o: o.price)
+        offers_sorted = sorted(offers, key=lambda o: (o.price, o.id))
         offer_ids = [offer.id for offer in offers_sorted]
         photos_by_seller_product = self.photo_gateway.list_by_seller_products(offer_ids)
 

@@ -440,24 +440,40 @@ This file doesn't import `text` at module level yet. Add this import at the very
 from sqlalchemy import text
 ```
 
+**Important:** `SellerProduct.product_id` has a foreign key constraint to `Product(id)` (`database/migrations/005_create_seller_products.sql`, `fk_SellerProduct_product`) — unlike the existing tests in this file, which all pass `product_id=None`, these new tests link real products, so they need real `Product`/`ProductGroup` rows inserted first, not arbitrary integer literals. Add these two helpers (same pattern as `test_product_repository.py`) alongside the existing `insert_seller` helper:
+
+```python
+def insert_product_group(session, *, name: str) -> int:
+    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+
+
+def insert_product(session, *, group_id: int, name: str) -> int:
+    return session.execute(
+        text("INSERT INTO Product (product_group_id, name) VALUES (:group_id, :name)"),
+        {"group_id": group_id, "name": name},
+    ).lastrowid
+```
+
 Then add these tests to the file:
 
 ```python
 def test_list_published_for_products_excludes_unpublished(session):
+    group_id = insert_product_group(session, name="Группа для published-фильтра")
+    product_id = insert_product(session, group_id=group_id, name="Товар для published-фильтра")
     seller_id = insert_seller(session, name="Продавец для published-фильтра")
     repository = SellerProductRepository(session)
     published = repository.create(
-        seller_id=seller_id, product_id=555, seller_name="Опубликован", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_id, seller_name="Опубликован", price=10, stock=1, unit="шт", description=None,
     )
     unpublished = repository.create(
-        seller_id=seller_id, product_id=555, seller_name="Не опубликован", price=20, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_id, seller_name="Не опубликован", price=20, stock=1, unit="шт", description=None,
     )
     session.execute(
         text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"),
         {"id": unpublished.id},
     )
 
-    result = repository.list_published_for_products([555])
+    result = repository.list_published_for_products([product_id])
 
     ids = [sp.id for sp in result]
     assert published.id in ids
@@ -465,16 +481,19 @@ def test_list_published_for_products_excludes_unpublished(session):
 
 
 def test_list_published_for_products_filters_by_product_id(session):
+    group_id = insert_product_group(session, name="Группа для product_id-фильтра")
+    product_a_id = insert_product(session, group_id=group_id, name="Товар A для product_id-фильтра")
+    product_b_id = insert_product(session, group_id=group_id, name="Товар B для product_id-фильтра")
     seller_id = insert_seller(session, name="Продавец для product_id-фильтра")
     repository = SellerProductRepository(session)
     for_product_a = repository.create(
-        seller_id=seller_id, product_id=601, seller_name="Товар A", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_a_id, seller_name="Товар A", price=10, stock=1, unit="шт", description=None,
     )
     repository.create(
-        seller_id=seller_id, product_id=602, seller_name="Товар B", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_b_id, seller_name="Товар B", price=10, stock=1, unit="шт", description=None,
     )
 
-    result = repository.list_published_for_products([601])
+    result = repository.list_published_for_products([product_a_id])
 
     assert [sp.id for sp in result] == [for_product_a.id]
 
@@ -1251,7 +1270,10 @@ def test_get_product_by_id_returns_offers(committing_session):
     body = response.json()
     assert body["id"] == product_id
     assert len(body["offers"]) == 1
-    assert body["offers"][0]["price"] == "15"
+    # SellerProduct.price is Numeric(12, 2) — Pydantic/JSON serializes Decimal
+    # with its full scale, so this is "15.00", not "15" (same fixed-scale
+    # behavior already hit and fixed in Task 8's router test).
+    assert body["offers"][0]["price"] == "15.00"
 
 
 def test_get_product_by_id_returns_404_for_missing_product(committing_session):

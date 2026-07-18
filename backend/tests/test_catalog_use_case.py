@@ -169,3 +169,47 @@ def test_get_product_returns_none_for_product_without_visible_offers(session):
 
 def test_get_product_returns_none_for_missing_product(session):
     assert CatalogUseCase(session).get_product(999_999) is None
+
+
+def test_get_product_breaks_price_ties_deterministically_by_offer_id(session):
+    group_id = insert_product_group(session, name="Группа для tie-break")
+    product_id = insert_product(session, group_id=group_id, name="Товар с одинаковой ценой")
+    seller_a = insert_active_seller(session, name="Продавец A для tie-break")
+    seller_b = insert_active_seller(session, name="Продавец B для tie-break")
+    offer_a = insert_seller_product(session, seller_id=seller_a, product_id=product_id, price=30)
+    offer_b = insert_seller_product(session, seller_id=seller_b, product_id=product_id, price=30)
+    lower_id, higher_id = sorted([offer_a, offer_b])
+
+    result = CatalogUseCase(session).get_product(product_id)
+
+    assert [offer["seller_product_id"] for offer in result["offers"]] == [lower_id, higher_id]
+
+
+def test_list_products_breaks_price_ties_deterministically_for_cheapest_offer(session):
+    group_id = insert_product_group(session, name="Группа для list_products tie-break")
+    product_id = insert_product(session, group_id=group_id, name="Товар для list_products tie-break")
+    seller_a = insert_active_seller(session, name="Продавец A для list_products tie-break")
+    seller_b = insert_active_seller(session, name="Продавец B для list_products tie-break")
+    offer_a = insert_seller_product(session, seller_id=seller_a, product_id=product_id, price=30)
+    offer_b = insert_seller_product(session, seller_id=seller_b, product_id=product_id, price=30)
+    lower_id, higher_id = sorted([offer_a, offer_b])
+    # attach a photo to each offer so the winning tie-break is observable
+    # through the public contract (which photo shows on the tile), not by
+    # peeking at internal state.
+    insert_seller_product_photo(session, seller_product_id=lower_id, s3_key="lower.jpg")
+    insert_seller_product_photo(session, seller_product_id=higher_id, s3_key="higher.jpg")
+
+    items, _ = CatalogUseCase(session).list_products(group_id=group_id)
+
+    item = next(i for i in items if i["id"] == product_id)
+    assert item["min_price"] == 30
+    assert item["photos"] == ["lower.jpg"]
+
+
+def insert_seller_product_photo(session, *, seller_product_id: int, s3_key: str) -> int:
+    photo_id = session.execute(text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": s3_key}).lastrowid
+    session.execute(
+        text("INSERT INTO SellerProductPhoto (seller_product_id, photo_id) VALUES (:seller_product_id, :photo_id)"),
+        {"seller_product_id": seller_product_id, "photo_id": photo_id},
+    )
+    return photo_id

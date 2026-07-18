@@ -28,6 +28,7 @@ class SellerProductRepository:
                 SellerProduct.product_id.in_(product_ids),
                 SellerProduct.is_published.is_(True),
             )
+            .order_by(SellerProduct.price, SellerProduct.id)
             .all()
         )
 
