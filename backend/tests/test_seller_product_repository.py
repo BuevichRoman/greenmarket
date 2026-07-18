@@ -9,6 +9,17 @@ def insert_seller(session, *, name: str) -> int:
     return result.lastrowid
 
 
+def insert_product_group(session, *, name: str) -> int:
+    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+
+
+def insert_product(session, *, group_id: int, name: str) -> int:
+    return session.execute(
+        text("INSERT INTO Product (product_group_id, name) VALUES (:group_id, :name)"),
+        {"group_id": group_id, "name": name},
+    ).lastrowid
+
+
 def test_create_persists_and_returns_seller_product_with_id(session):
     seller_id = insert_seller(session, name="Ферма создание")
     repository = SellerProductRepository(session)
@@ -50,3 +61,48 @@ def test_find_by_id_returns_created_seller_product(session):
 def test_find_by_id_returns_none_for_missing_id(session):
     repository = SellerProductRepository(session)
     assert repository.find_by_id(999_999) is None
+
+
+def test_list_published_for_products_excludes_unpublished(session):
+    group_id = insert_product_group(session, name="Группа для published-фильтра")
+    product_id = insert_product(session, group_id=group_id, name="Товар для published-фильтра")
+    seller_id = insert_seller(session, name="Продавец для published-фильтра")
+    repository = SellerProductRepository(session)
+    published = repository.create(
+        seller_id=seller_id, product_id=product_id, seller_name="Опубликован", price=10, stock=1, unit="шт", description=None,
+    )
+    unpublished = repository.create(
+        seller_id=seller_id, product_id=product_id, seller_name="Не опубликован", price=20, stock=1, unit="шт", description=None,
+    )
+    session.execute(
+        text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"),
+        {"id": unpublished.id},
+    )
+
+    result = repository.list_published_for_products([product_id])
+
+    ids = [sp.id for sp in result]
+    assert published.id in ids
+    assert unpublished.id not in ids
+
+
+def test_list_published_for_products_filters_by_product_id(session):
+    group_id = insert_product_group(session, name="Группа для product_id-фильтра")
+    product_a_id = insert_product(session, group_id=group_id, name="Товар A для product_id-фильтра")
+    product_b_id = insert_product(session, group_id=group_id, name="Товар B для product_id-фильтра")
+    seller_id = insert_seller(session, name="Продавец для product_id-фильтра")
+    repository = SellerProductRepository(session)
+    for_product_a = repository.create(
+        seller_id=seller_id, product_id=product_a_id, seller_name="Товар A", price=10, stock=1, unit="шт", description=None,
+    )
+    repository.create(
+        seller_id=seller_id, product_id=product_b_id, seller_name="Товар B", price=10, stock=1, unit="шт", description=None,
+    )
+
+    result = repository.list_published_for_products([product_a_id])
+
+    assert [sp.id for sp in result] == [for_product_a.id]
+
+
+def test_list_published_for_products_returns_empty_list_for_empty_input(session):
+    assert SellerProductRepository(session).list_published_for_products([]) == []

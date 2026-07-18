@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.api.v1.catalog import router as catalog_router
 from app.api.v1.publications import router as publications_router
 from app.infrastructure.database import get_session
 
@@ -13,6 +14,7 @@ app = FastAPI(
     version="1.0.0",
 )
 app.include_router(publications_router)
+app.include_router(catalog_router)
 
 
 @app.exception_handler(RequestValidationError)

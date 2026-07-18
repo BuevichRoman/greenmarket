@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.database import SessionLocal, engine
@@ -11,6 +12,16 @@ def session():
         yield db_session
     finally:
         db_session.close()
+
+
+@pytest.fixture
+def seller_product_id(session) -> int:
+    user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": "Продавец для фото"}).lastrowid
+    seller_id = session.execute(text("INSERT INTO Seller (user_id) VALUES (:user_id)"), {"user_id": user_id}).lastrowid
+    return session.execute(
+        text("INSERT INTO SellerProduct (seller_id, seller_name, unit) VALUES (:seller_id, :seller_name, :unit)"),
+        {"seller_id": seller_id, "seller_name": "Товар для фото", "unit": "шт"},
+    ).lastrowid
 
 
 @pytest.fixture
