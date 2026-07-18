@@ -4,8 +4,14 @@
     {
       "name": "buyer-web-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--host"],
+      "runtimeArgs": ["--prefix", "buyer-web", "run", "dev", "--", "--host"],
       "port": 5173
+    },
+    {
+      "name": "seller-cabinet-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "seller-cabinet", "run", "dev", "--", "--host"],
+      "port": 5174
     }
   ]
 }
