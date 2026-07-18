@@ -2,14 +2,18 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.catalog_schemas import (
+    ProductDetailResponse,
     ProductGroupItem,
     ProductGroupsResponse,
     ProductListItem,
     ProductListResponse,
+    SellerOfferItem,
 )
+from app.api.v1.schemas import ErrorDetail, ErrorResponse
 from app.application.catalog_use_case import CatalogUseCase
 from app.infrastructure.database import get_session
 
@@ -41,4 +45,23 @@ def list_products(
         page=page,
         limit=limit,
         total=total,
+    )
+
+
+def _not_found(message: str) -> JSONResponse:
+    payload = ErrorResponse(error=ErrorDetail(code="NOT_FOUND", message=message, details=[]))
+    return JSONResponse(status_code=404, content=payload.model_dump())
+
+
+@router.get("/products/{product_id}", response_model=ProductDetailResponse)
+def get_product(product_id: int, session: Session = Depends(get_session)) -> ProductDetailResponse | JSONResponse:
+    use_case = CatalogUseCase(session)
+    product = use_case.get_product(product_id)
+    if product is None:
+        return _not_found(f"Товар {product_id} не найден или недоступен")
+    return ProductDetailResponse(
+        id=product["id"],
+        name=product["name"],
+        description=product["description"],
+        offers=[SellerOfferItem(**offer) for offer in product["offers"]],
     )

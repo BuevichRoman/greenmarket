@@ -143,3 +143,29 @@ def test_list_products_paginates(session):
     assert total == 3
     assert len(page_1) == 2
     assert len(page_2) == 1
+
+
+def test_get_product_returns_offers_sorted_by_price(session):
+    group_id = insert_product_group(session, name="Группа для get_product")
+    product_id = insert_product(session, group_id=group_id, name="Товар для get_product")
+    seller_expensive = insert_active_seller(session, name="Дорогой продавец get_product")
+    seller_cheap = insert_active_seller(session, name="Дешёвый продавец get_product")
+    insert_seller_product(session, seller_id=seller_expensive, product_id=product_id, price=200)
+    insert_seller_product(session, seller_id=seller_cheap, product_id=product_id, price=20)
+
+    result = CatalogUseCase(session).get_product(product_id)
+
+    assert result is not None
+    assert result["id"] == product_id
+    assert [offer["price"] for offer in result["offers"]] == [20, 200]
+
+
+def test_get_product_returns_none_for_product_without_visible_offers(session):
+    group_id = insert_product_group(session, name="Группа для get_product без предложений")
+    product_id = insert_product(session, group_id=group_id, name="Товар без предложений get_product")
+
+    assert CatalogUseCase(session).get_product(product_id) is None
+
+
+def test_get_product_returns_none_for_missing_product(session):
+    assert CatalogUseCase(session).get_product(999_999) is None

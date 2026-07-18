@@ -105,3 +105,36 @@ class CatalogUseCase:
                 }
             )
         return items, total
+
+    def get_product(self, product_id: int) -> dict | None:
+        product = self.product_repository.get_active(product_id)
+        if product is None:
+            return None
+
+        offers_by_product = self._visible_offers_by_product([product_id])
+        offers = offers_by_product.get(product_id, [])
+        if not offers:
+            return None
+
+        offers_sorted = sorted(offers, key=lambda o: o.price)
+        offer_ids = [offer.id for offer in offers_sorted]
+        photos_by_seller_product = self.photo_gateway.list_by_seller_products(offer_ids)
+
+        return {
+            "id": product.id,
+            "name": product.name,
+            "description": product.description,
+            "offers": [
+                {
+                    "seller_product_id": offer.id,
+                    "seller_id": offer.seller_id,
+                    "seller_name": offer.seller_name,
+                    "price": offer.price,
+                    "unit": offer.unit,
+                    "stock": offer.stock,
+                    "description": offer.description,
+                    "photos": photos_by_seller_product.get(offer.id, []),
+                }
+                for offer in offers_sorted
+            ],
+        }

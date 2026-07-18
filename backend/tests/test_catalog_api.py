@@ -85,3 +85,35 @@ def test_get_products_rejects_invalid_limit(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_get_product_by_id_returns_offers(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа для роутера product detail")
+    product_id = insert_product(committing_session, group_id=group_id, name="Товар для роутера detail")
+    seller_id = insert_active_seller(committing_session, name="Продавец для роутера detail")
+    insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=15)
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products/{product_id}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == product_id
+    assert len(body["offers"]) == 1
+    # SellerProduct.price is Numeric(12, 2) — Pydantic/JSON serializes Decimal
+    # with its full scale, so this is "15.00", not "15" (same fixed-scale
+    # behavior already hit and fixed in Task 8's router test).
+    assert body["offers"][0]["price"] == "15.00"
+
+
+def test_get_product_by_id_returns_404_for_missing_product(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/catalog/products/999999")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
