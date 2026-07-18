@@ -18,7 +18,9 @@ docker run -d --name greenmarket-mysql \
 
 Затем применить по порядку: стаб платформенных таблиц (Seller/User/Photo,
 только для dev/CI, не часть продукта, см. `tests/fixtures/platform_stub.sql`)
-→ `../database/migrations/00{1..6}_*.sql` → `../database/seeders/00{1,2}_*.sql`.
+→ `../database/migrations/00{1..8}_*.sql` → `../database/seeders/00{1..4}_*.sql`
+(`003`/`004` — демо-продавцы и предложения для Catalog API, см.
+`docs/03-database/Database_Migrations.md`, раздел Seed Data).
 
 ## Переменные окружения
 
