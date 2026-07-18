@@ -1,0 +1,365 @@
+:root {
+  --bg: #fafaf7;
+  --surface: #ffffff;
+  --text: #1f2418;
+  --text-muted: #63705c;
+  --border: #e2e5dc;
+  --accent: #2f7d3f;
+  --accent-hover: #256432;
+  --accent-bg: rgba(47, 125, 63, 0.08);
+  --danger: #b3261e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 10px rgba(0, 0, 0, 0.04);
+  --radius: 10px;
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14170f;
+    --surface: #1c2117;
+    --text: #eef1e8;
+    --text-muted: #9aa791;
+    --border: #2c3324;
+    --accent: #6fcf7a;
+    --accent-hover: #86dc90;
+    --accent-bg: rgba(111, 207, 122, 0.12);
+    --danger: #ff8a80;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.app {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.75rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.logo {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text);
+}
+
+main {
+  flex: 1;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+}
+
+.screen h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+}
+
+.tagline {
+  color: var(--text-muted);
+  margin: 0 0 1.25rem;
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.search-bar button {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.search-bar button:hover {
+  background: var(--accent-hover);
+}
+
+/* Popular categories chips */
+.popular-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* Category tree */
+.category-tree,
+.category-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.category-children {
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+  margin-left: 0.4rem;
+}
+
+.category-item {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.4rem 0.25rem;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.category-item:hover {
+  background: var(--accent-bg);
+}
+
+.category-count {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Catalog screen */
+.catalog-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 720px) {
+  .catalog-layout {
+    grid-template-columns: 200px 1fr;
+  }
+}
+
+.catalog-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.catalog-heading {
+  font-weight: 600;
+}
+
+.catalog-total {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.sort-select select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  background: var(--surface);
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  box-shadow: var(--shadow);
+}
+
+.product-photo {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.product-card-body {
+  padding: 0.6rem 0.75rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.product-name {
+  font-weight: 600;
+}
+
+.product-price {
+  color: var(--accent);
+}
+
+.product-offers {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.photo-placeholder {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background: var(--accent-bg);
+}
+
+.empty-state {
+  color: var(--text-muted);
+  padding: 2rem 0;
+  text-align: center;
+}
+
+/* Product screen */
+.back-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.product-description {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.offer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.offer-card {
+  display: flex;
+  gap: 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  box-shadow: var(--shadow);
+}
+
+.offer-card .photo-placeholder,
+.offer-photo {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  font-size: 1.5rem;
+  object-fit: cover;
+}
+
+.offer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.offer-seller {
+  font-weight: 600;
+}
+
+.offer-price {
+  color: var(--accent);
+}
+
+.offer-stock {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.offer-description {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+/* Loading / error / offline states */
+.loading-state,
+.offline-state {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 3rem 0;
+}
+
+.error-state {
+  text-align: center;
+  padding: 3rem 0;
+  color: var(--danger);
+}
+
+.error-state button {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1.2rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
