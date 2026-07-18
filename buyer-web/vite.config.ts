@@ -9,6 +9,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Временно, для демо через ngrok/cloudflare-туннель — иначе Vite отклоняет
+    // запросы с чужим Host-заголовком ("This host is not allowed").
+    allowedHosts: ['.ngrok-free.app', '.ngrok.app', '.ngrok.io', '.trycloudflare.com'],
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
