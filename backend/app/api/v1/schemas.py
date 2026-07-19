@@ -1,5 +1,6 @@
 import re
 
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 _SHEET_URL_PATTERN = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
@@ -45,3 +46,12 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+def error_response(
+    status_code: int, code: str, message: str, details: list[ValidationErrorDetail] | None = None
+) -> JSONResponse:
+    """Единый error-envelope для всех эндпоинтов /api/v1 — раньше catalog.py и
+    publications.py собирали его каждый своим локальным хелпером."""
+    payload = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details or []))
+    return JSONResponse(status_code=status_code, content=payload.model_dump())

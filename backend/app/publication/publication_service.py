@@ -92,6 +92,12 @@ class PublicationService:
             )
         except IntegrityError as exc:
             self.session.rollback()
+            if "uk_CatalogPublication_key" not in str(exc.orig):
+                # Не гонка по publication_key (например FK на published_by/seller_id
+                # или UNIQUE(seller_id, version)) — пробрасываем как есть, не
+                # маскируем под DuplicatePublicationError.
+                logger.warning("Публикация отклонена (ошибка целостности данных): seller_id=%s publication_key=%s error=%s", seller_id, publication_key, exc)
+                raise
             # UNIQUE(publication_key) на CatalogPublication — гонка между
             # exists_with_key() и собственным INSERT (два publish() с одним
             # ключом одновременно). PublicationService по контракту

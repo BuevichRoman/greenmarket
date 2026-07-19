@@ -373,6 +373,24 @@ def test_integrity_error_race_on_publication_key_is_wrapped(committing_session):
     assert SellerProductRepository(committing_session).list_by_seller(seller_id) == []
 
 
+def test_integrity_error_from_invalid_published_by_is_not_mislabeled_as_duplicate_key(committing_session):
+    # Регрессия на реальный баг (kwork/timeline.md, 18.07): FK-нарушение
+    # fk_CatalogPublication_user (published_by не существует в users) ловилось
+    # тем же except IntegrityError, что и гонка по publication_key, и
+    # подписывалось как DuplicatePublicationError — вводило в заблуждение.
+    from sqlalchemy.exc import IntegrityError
+
+    seller_id = insert_seller(committing_session, name="Ферма FK-баг")
+    service = make_service(committing_session)
+    model = make_model(seller_id, [make_product(price=10)])
+    nonexistent_user_id = 999_999_999
+
+    with pytest.raises(IntegrityError):
+        service.publish(model, published_by=nonexistent_user_id, publication_key="fk-bug-key", catalog_hash="fk-bug-hash")
+
+    assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 0
+
+
 def test_identical_catalog_hash_with_fresh_key_short_circuits_without_touching_seller_products(committing_session):
     # Не сам файл резубмиттится (ключ новый — это отдельный, легитимный
     # повторный download шаблона), но контент не изменился: SellerProduct не
