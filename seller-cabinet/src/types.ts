@@ -29,3 +29,23 @@ export interface ApiError {
   message: string
   details: ValidationErrorDetail[]
 }
+
+export interface SellerStatus {
+  seller_id: number
+  is_active: boolean
+  current_catalog_version: number
+  published_product_count: number
+  last_published_at: string | null
+}
+
+export interface PublicationHistoryItem {
+  version: number
+  published_at: string
+  created: number
+  updated: number
+  deactivated: number
+}
+
+export interface PublicationHistoryResponse {
+  publications: PublicationHistoryItem[]
+}
