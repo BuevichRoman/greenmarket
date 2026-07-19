@@ -1,10 +1,9 @@
 import logging
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.schemas import ErrorDetail, ErrorResponse, PublicationRequest, PublicationResponse, ValidationErrorDetail
+from app.api.v1.schemas import PublicationRequest, PublicationResponse, ValidationErrorDetail, error_response
 from app.application.publication_use_case import PublicationUseCase, PublicationValidationError
 from app.infrastructure.database import get_session
 from app.parsing.exceptions import GoogleSheetsAccessError, GoogleSheetsNotFoundError, ParserError
@@ -21,11 +20,6 @@ def get_google_sheets_parser_resource():
     return None
 
 
-def _error(status_code: int, code: str, message: str, details: list[ValidationErrorDetail] | None = None) -> JSONResponse:
-    payload = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details or []))
-    return JSONResponse(status_code=status_code, content=payload.model_dump())
-
-
 @router.post("", response_model=PublicationResponse)
 def create_publication(
     request: PublicationRequest,
@@ -35,7 +29,7 @@ def create_publication(
     try:
         spreadsheet_id = request.resolve_spreadsheet_id()
     except ValueError as exc:
-        return _error(422, "VALIDATION_ERROR", str(exc))
+        return error_response(422, "VALIDATION_ERROR", str(exc))
 
     logger.info("Публикация начата: seller_id=%s spreadsheet_id=%s", request.seller_id, spreadsheet_id)
 
@@ -43,7 +37,7 @@ def create_publication(
         use_case = PublicationUseCase(session, parser_resource=parser_resource)
         result = use_case.publish(spreadsheet_id, seller_id=request.seller_id, published_by=request.published_by)
     except PublicationValidationError as exc:
-        return _error(
+        return error_response(
             422,
             "VALIDATION_ERROR",
             "Каталог не прошёл валидацию",
@@ -53,19 +47,19 @@ def create_publication(
             ],
         )
     except DuplicatePublicationError as exc:
-        return _error(409, "DUPLICATE_PUBLICATION", str(exc))
+        return error_response(409, "DUPLICATE_PUBLICATION", str(exc))
     except PublicationConflictError as exc:
-        return _error(409, "PUBLICATION_CONFLICT", str(exc))
+        return error_response(409, "PUBLICATION_CONFLICT", str(exc))
     except GoogleSheetsNotFoundError as exc:
-        return _error(404, "SHEET_NOT_FOUND", str(exc))
+        return error_response(404, "SHEET_NOT_FOUND", str(exc))
     except GoogleSheetsAccessError as exc:
-        return _error(403, "SHEET_ACCESS_DENIED", str(exc))
+        return error_response(403, "SHEET_ACCESS_DENIED", str(exc))
     except ParserError as exc:
         logger.warning("Ошибка Google Sheets API: seller_id=%s error=%s", request.seller_id, exc)
-        return _error(500, "GOOGLE_API_ERROR", "Ошибка при обращении к Google Sheets API")
+        return error_response(500, "GOOGLE_API_ERROR", "Ошибка при обращении к Google Sheets API")
     except Exception as exc:
         logger.exception("Внутренняя ошибка при публикации: seller_id=%s error=%s", request.seller_id, exc)
-        return _error(500, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
+        return error_response(500, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 
     logger.info(
         "Публикация завершена: seller_id=%s publication_id=%s created=%s updated=%s deactivated=%s",

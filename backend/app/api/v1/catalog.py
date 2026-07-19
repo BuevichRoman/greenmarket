@@ -13,7 +13,7 @@ from app.api.v1.catalog_schemas import (
     ProductListResponse,
     SellerOfferItem,
 )
-from app.api.v1.schemas import ErrorDetail, ErrorResponse
+from app.api.v1.schemas import error_response
 from app.application.catalog_use_case import CatalogUseCase
 from app.infrastructure.database import get_session
 
@@ -49,8 +49,7 @@ def list_products(
 
 
 def _not_found(message: str) -> JSONResponse:
-    payload = ErrorResponse(error=ErrorDetail(code="NOT_FOUND", message=message, details=[]))
-    return JSONResponse(status_code=404, content=payload.model_dump())
+    return error_response(404, "NOT_FOUND", message)
 
 
 @router.get("/products/{product_id}", response_model=ProductDetailResponse)
