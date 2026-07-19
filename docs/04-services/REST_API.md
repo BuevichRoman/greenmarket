@@ -48,16 +48,16 @@ REST API первого этапа состоит из следующих раз
 
 Используется Seller Cabinet.
 
-- `POST /api/v1/publications` — создание публикации. `Content-Type: application/json`, тело `{"seller_id": int, "published_by": int, "sheet_url": str}` (либо `spreadsheet_id` вместо `sheet_url`, если клиент уже разобрал ссылку). Публикация выполняется синхронно в рамках одного HTTP-запроса. Ответ возвращается только после завершения всей операции и содержит либо успешный результат публикации (`publication_id`, `created`, `updated`, `deactivated`), либо список ошибок валидации (`422`).
-- `GET /api/v1/publications` — история публикаций продавца.
+- `POST /api/v1/publications` — создание публикации. `Content-Type: application/json`, тело `{"access_token": str, "sheet_url": str}` (либо `spreadsheet_id` вместо `sheet_url`). Сервер резолвит `access_token` в `seller_id`/`published_by` (`SELLER_ACCESS_TOKENS`) — клиент их не передаёт напрямую (закрыто 19.07 — была дыра безопасности, открытый `seller_id` позволял публиковать от чужого имени). Публикация выполняется синхронно в рамках одного HTTP-запроса. Ответ возвращается только после завершения всей операции и содержит либо успешный результат публикации (`publication_id`, `created`, `updated`, `deactivated`, `mode`), либо список ошибок валидации (`422`).
+- `GET /api/v1/publications?access_token=...` — история публикаций продавца, версии по убыванию (`version`, `published_at`, `created`, `updated`, `deactivated`).
 
 ## Seller API
 
 Используется Seller Cabinet.
 
-- `GET /api/v1/seller/catalog` — текущий каталог.
-- `GET /api/v1/seller/catalog/template` — шаблон Excel.
-- `GET /api/v1/seller/catalog/errors` — ошибки последней публикации.
+- `GET /api/v1/seller/catalog?access_token=...` — статус-сводка продавца (`is_active`, `current_catalog_version`, `published_product_count`, `last_published_at`), не построчный список товаров.
+- `GET /api/v1/seller/catalog/template` — шаблон Excel. Не реализовано — актуальный источник шаблона (CR-001) — статическая Google-таблица, не Excel-файл через API.
+- `GET /api/v1/seller/catalog/errors` — ошибки последней публикации. Не реализовано — ошибки сейчас возвращаются синхронно в ответе `POST /publications`, отдельный запрос не требовался.
 
 ## Admin API
 
