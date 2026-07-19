@@ -11,10 +11,21 @@ function readAccessToken(): string | null {
   return new URLSearchParams(window.location.search).get('token')
 }
 
+// Чисто визуальная подсказка "какая это ссылка" (?env=test|prod в самой ссылке,
+// проставляется вручную при раздаче ссылки продавцу/себе) — НЕ связана с реальным
+// режимом публикации: тот определяется полем Mode в самой Google-таблице и
+// становится известен только после ответа POST /publications (см. mode-badge в
+// PublishScreen). Тут просто напоминание, чтобы не перепутать, какую ссылку кому дали.
+function readEnvLabel(): 'test' | 'prod' | null {
+  const value = new URLSearchParams(window.location.search).get('env')
+  return value === 'test' || value === 'prod' ? value : null
+}
+
 type Screen = 'home' | 'history' | 'publish'
 
 function App() {
   const [accessToken] = useState(readAccessToken)
+  const [envLabel] = useState(readEnvLabel)
   const [screen, setScreen] = useState<Screen>('publish')
 
   if (!accessToken) {
@@ -22,6 +33,9 @@ function App() {
       <div className="app">
         <header className="app-header">
           <span className="logo">🧑‍🌾 GreenMarket — Seller Cabinet</span>
+          {envLabel && (
+            <span className={`mode-badge mode-${envLabel}`}>{envLabel === 'test' ? 'ТЕСТ' : 'БОЙ'}</span>
+          )}
         </header>
         <main>
           <section className="screen">
@@ -40,6 +54,9 @@ function App() {
     <div className="app">
       <header className="app-header">
         <span className="logo">🧑‍🌾 GreenMarket — Seller Cabinet</span>
+        {envLabel && (
+          <span className={`mode-badge mode-${envLabel}`}>{envLabel === 'test' ? 'ТЕСТ' : 'БОЙ'}</span>
+        )}
         <nav className="nav-tabs">
           <button className={screen === 'home' ? 'active' : ''} onClick={() => setScreen('home')}>
             Главная
