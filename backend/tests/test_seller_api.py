@@ -92,3 +92,28 @@ def test_get_seller_catalog_returns_404_for_token_with_no_seller_row(committing_
     app.dependency_overrides.clear()
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "SELLER_NOT_FOUND"
+
+
+def test_get_seller_catalog_reflects_active_flag_and_published_product_count(committing_session):
+    from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
+
+    seller_id = insert_seller(committing_session, name="Продавец активен с товарами API")
+    committing_session.execute(text("UPDATE Seller SET is_active = TRUE WHERE id = :id"), {"id": seller_id})
+    published = SellerProductRepository(committing_session).create(
+        seller_id=seller_id, product_id=None, seller_name="Товар для статуса API", price=1, stock=1, unit="шт", description=None,
+    )
+    unpublished = SellerProductRepository(committing_session).create(
+        seller_id=seller_id, product_id=None, seller_name="Неопубликован для статуса API", price=1, stock=1, unit="шт", description=None,
+    )
+    committing_session.execute(text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"), {"id": unpublished.id})
+    override_session(committing_session)
+    override_seller_access(seller_id, seller_id)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/seller/catalog", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_active"] is True
+    assert body["published_product_count"] == 1
