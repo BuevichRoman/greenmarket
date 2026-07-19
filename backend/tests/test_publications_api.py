@@ -1,8 +1,16 @@
 from sqlalchemy import text
 
-from app.api.v1.publications import get_google_sheets_parser_resource
+from app.api.v1.publications import get_google_sheets_parser_resource, get_seller_access_resolver
 from app.main import app
+from app.publication.seller_access import SellerAccess
 from tests.test_google_sheets_parser import FakeSheetsResource, make_http_error
+
+VALID_TOKEN = "test-token"
+
+
+def override_seller_access(seller_id: int, published_by: int, *, name: str = "Тестовый продавец") -> None:
+    access = SellerAccess(seller_id=seller_id, published_by=published_by, name=name)
+    app.dependency_overrides[get_seller_access_resolver] = lambda: (lambda token: access if token == VALID_TOKEN else None)
 
 CATALOG_HEADER = [
     "SellerProductId",
@@ -62,12 +70,13 @@ def test_successful_publication_returns_200(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма API")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]]))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-1"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-1"},
     )
 
     app.dependency_overrides.clear()
@@ -77,15 +86,36 @@ def test_successful_publication_returns_200(committing_session):
     assert body["created"] == 1
 
 
+def test_missing_or_invalid_access_token_returns_403(committing_session):
+    # Регрессия на дыру безопасности: раньше клиент сам присылал seller_id/
+    # published_by открытым текстом — любой мог опубликовать каталог от имени
+    # чужого продавца. Теперь единственный путь — access_token, который
+    # резолвится сервером; неизвестный токен обязан быть отклонён.
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"access_token": "not-a-real-token", "spreadsheet_id": "sheet-api-security"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
+
+
 def test_missing_sheet_source_returns_422(committing_session):
     from fastapi.testclient import TestClient
 
     seller_id = insert_seller(committing_session, name="Ферма без ссылки")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     client = TestClient(app)
 
-    response = client.post("/api/v1/publications", json={"seller_id": seller_id, "published_by": user_id})
+    response = client.post("/api/v1/publications", json={"access_token": VALID_TOKEN})
 
     app.dependency_overrides.clear()
     assert response.status_code == 422
@@ -100,7 +130,7 @@ def test_pydantic_type_error_returns_422_with_envelope(committing_session):
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": "not-a-number", "published_by": 1, "spreadsheet_id": "x"},
+        json={"access_token": 12345, "spreadsheet_id": "x"},
     )
 
     app.dependency_overrides.clear()
@@ -114,12 +144,13 @@ def test_validation_errors_return_422_with_details(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма ошибка валидации")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]]))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-2"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-2"},
     )
 
     app.dependency_overrides.clear()
@@ -134,12 +165,13 @@ def test_validation_errors_include_sheet_row_column(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма ошибка валидации 2")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]]))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-8"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-8"},
     )
 
     app.dependency_overrides.clear()
@@ -157,12 +189,13 @@ def test_sheet_not_found_returns_404(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма таблица не найдена")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([], get_error=make_http_error(404)))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-3"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-3"},
     )
 
     app.dependency_overrides.clear()
@@ -176,12 +209,13 @@ def test_sheet_access_denied_returns_403(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма доступ запрещён")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([], get_error=make_http_error(403)))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-5"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-5"},
     )
 
     app.dependency_overrides.clear()
@@ -195,12 +229,13 @@ def test_generic_google_api_error_returns_500(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма ошибка API")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([], get_error=make_http_error(500)))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-6"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-6"},
     )
 
     app.dependency_overrides.clear()
@@ -230,11 +265,12 @@ def test_unexpected_construction_failure_returns_500_internal_error(committing_s
     seller_id = insert_seller(committing_session, name="Ферма сбой конструктора")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
-        json={"seller_id": seller_id, "published_by": user_id, "spreadsheet_id": "sheet-api-7"},
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-7"},
     )
 
     app.dependency_overrides.clear()
@@ -251,14 +287,14 @@ def test_spreadsheet_id_is_extracted_from_sheet_url(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма ссылка")
     user_id = insert_user(committing_session, name="Admin")
     override_session(committing_session)
+    override_seller_access(seller_id, user_id)
     override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]]))
     client = TestClient(app)
 
     response = client.post(
         "/api/v1/publications",
         json={
-            "seller_id": seller_id,
-            "published_by": user_id,
+            "access_token": VALID_TOKEN,
             "sheet_url": "https://docs.google.com/spreadsheets/d/sheet-api-4/edit#gid=0",
         },
     )

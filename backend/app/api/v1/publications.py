@@ -8,6 +8,7 @@ from app.application.publication_use_case import PublicationUseCase, Publication
 from app.infrastructure.database import get_session
 from app.parsing.exceptions import GoogleSheetsAccessError, GoogleSheetsNotFoundError, ParserError
 from app.publication.errors import DuplicatePublicationError, PublicationConflictError
+from app.publication.seller_access import resolve_seller_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/publications", tags=["publications"])
@@ -20,22 +21,33 @@ def get_google_sheets_parser_resource():
     return None
 
 
+def get_seller_access_resolver():
+    """Переопределяется в тестах фейковым резолвером токенов —
+    см. `backend/tests/test_publications_api.py::override_seller_access`."""
+    return resolve_seller_access
+
+
 @router.post("", response_model=PublicationResponse)
 def create_publication(
     request: PublicationRequest,
     session: Session = Depends(get_session),
     parser_resource=Depends(get_google_sheets_parser_resource),
+    resolve_access=Depends(get_seller_access_resolver),
 ):
+    access = resolve_access(request.access_token)
+    if access is None:
+        return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
+
     try:
         spreadsheet_id = request.resolve_spreadsheet_id()
     except ValueError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
-    logger.info("Публикация начата: seller_id=%s spreadsheet_id=%s", request.seller_id, spreadsheet_id)
+    logger.info("Публикация начата: seller_id=%s spreadsheet_id=%s", access.seller_id, spreadsheet_id)
 
     try:
         use_case = PublicationUseCase(session, parser_resource=parser_resource)
-        result = use_case.publish(spreadsheet_id, seller_id=request.seller_id, published_by=request.published_by)
+        result = use_case.publish(spreadsheet_id, seller_id=access.seller_id, published_by=access.published_by)
     except PublicationValidationError as exc:
         return error_response(
             422,
@@ -55,15 +67,15 @@ def create_publication(
     except GoogleSheetsAccessError as exc:
         return error_response(403, "SHEET_ACCESS_DENIED", str(exc))
     except ParserError as exc:
-        logger.warning("Ошибка Google Sheets API: seller_id=%s error=%s", request.seller_id, exc)
+        logger.warning("Ошибка Google Sheets API: seller_id=%s error=%s", access.seller_id, exc)
         return error_response(500, "GOOGLE_API_ERROR", "Ошибка при обращении к Google Sheets API")
     except Exception as exc:
-        logger.exception("Внутренняя ошибка при публикации: seller_id=%s error=%s", request.seller_id, exc)
+        logger.exception("Внутренняя ошибка при публикации: seller_id=%s error=%s", access.seller_id, exc)
         return error_response(500, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 
     logger.info(
         "Публикация завершена: seller_id=%s publication_id=%s created=%s updated=%s deactivated=%s",
-        request.seller_id, result.publication_id, result.created_count, result.updated_count, result.deactivated_count,
+        access.seller_id, result.publication_id, result.created_count, result.updated_count, result.deactivated_count,
     )
     return PublicationResponse(
         success=result.success,

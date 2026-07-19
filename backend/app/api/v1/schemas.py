@@ -7,8 +7,7 @@ _SHEET_URL_PATTERN = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 
 
 class PublicationRequest(BaseModel):
-    seller_id: int
-    published_by: int
+    access_token: str
     sheet_url: str | None = None
     spreadsheet_id: str | None = None
 
