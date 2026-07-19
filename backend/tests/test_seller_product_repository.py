@@ -121,3 +121,13 @@ def test_count_published_counts_only_published(session):
 def test_count_published_returns_zero_for_seller_without_products(session):
     seller_id = insert_seller(session, name="Продавец без товаров для count_published")
     assert SellerProductRepository(session).count_published(seller_id) == 0
+
+
+def test_count_published_only_counts_the_given_seller(session):
+    seller_a = insert_seller(session, name="Продавец А для count_published изоляции")
+    seller_b = insert_seller(session, name="Продавец Б для count_published изоляции")
+    repository = SellerProductRepository(session)
+    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А", price=1, stock=1, unit="шт", description=None)
+    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None)
+
+    assert repository.count_published(seller_a) == 1
