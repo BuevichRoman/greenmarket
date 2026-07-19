@@ -19,6 +19,13 @@ class SellerProductRepository:
             .all()
         )
 
+    def count_published(self, seller_id: int) -> int:
+        return (
+            self.session.query(SellerProduct)
+            .filter(SellerProduct.seller_id == seller_id, SellerProduct.is_published.is_(True))
+            .count()
+        )
+
     def list_published_for_products(self, product_ids: list[int]) -> list[SellerProduct]:
         if not product_ids:
             return []

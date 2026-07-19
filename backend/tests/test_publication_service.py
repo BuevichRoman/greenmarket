@@ -431,3 +431,20 @@ def test_republishing_the_exact_same_file_is_rejected_as_duplicate(committing_se
         service.publish(resubmitted, published_by=user_id, publication_key="same-file-key", catalog_hash="same-file-hash")
 
     assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 1
+
+
+def test_publish_persists_counts_on_the_publication_record(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма счётчики в истории")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    model = make_model(
+        seller_id,
+        [make_product(seller_name="Ферма А", price=50), make_product(seller_name="Ферма Б", price=80)],
+    )
+    result = service.publish(model, published_by=user_id, publication_key="counts-key-1", catalog_hash="counts-hash-1")
+
+    publication = CatalogPublicationRepository(committing_session).list_by_seller(seller_id)[0]
+    assert publication.created_count == result.created_count == 2
+    assert publication.updated_count == result.updated_count == 0
+    assert publication.deactivated_count == result.deactivated_count == 0

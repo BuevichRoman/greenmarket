@@ -1,5 +1,13 @@
+from dataclasses import dataclass
+
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
+
+
+@dataclass(frozen=True)
+class SellerStatus:
+    is_active: bool
+    current_catalog_version: int
 
 
 class SellerGateway:
@@ -14,6 +22,15 @@ class SellerGateway:
 
     def __init__(self, session: Session):
         self.session = session
+
+    def get_status(self, seller_id: int) -> SellerStatus | None:
+        row = self.session.execute(
+            text("SELECT is_active, current_catalog_version FROM Seller WHERE id = :seller_id"),
+            {"seller_id": seller_id},
+        ).first()
+        if row is None:
+            return None
+        return SellerStatus(is_active=bool(row[0]), current_catalog_version=row[1] or 0)
 
     def get_current_publication_key(self, seller_id: int) -> str | None:
         row = self.session.execute(

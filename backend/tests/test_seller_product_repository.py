@@ -106,3 +106,28 @@ def test_list_published_for_products_filters_by_product_id(session):
 
 def test_list_published_for_products_returns_empty_list_for_empty_input(session):
     assert SellerProductRepository(session).list_published_for_products([]) == []
+
+
+def test_count_published_counts_only_published(session):
+    seller_id = insert_seller(session, name="Продавец для count_published")
+    repository = SellerProductRepository(session)
+    repository.create(seller_id=seller_id, product_id=None, seller_name="Опубликован для count", price=1, stock=1, unit="шт", description=None)
+    unpublished = repository.create(seller_id=seller_id, product_id=None, seller_name="Не опубликован для count", price=1, stock=1, unit="шт", description=None)
+    session.execute(text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"), {"id": unpublished.id})
+
+    assert repository.count_published(seller_id) == 1
+
+
+def test_count_published_returns_zero_for_seller_without_products(session):
+    seller_id = insert_seller(session, name="Продавец без товаров для count_published")
+    assert SellerProductRepository(session).count_published(seller_id) == 0
+
+
+def test_count_published_only_counts_the_given_seller(session):
+    seller_a = insert_seller(session, name="Продавец А для count_published изоляции")
+    seller_b = insert_seller(session, name="Продавец Б для count_published изоляции")
+    repository = SellerProductRepository(session)
+    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А", price=1, stock=1, unit="шт", description=None)
+    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None)
+
+    assert repository.count_published(seller_a) == 1

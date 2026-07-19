@@ -182,21 +182,74 @@ h1 {
   margin: 0.5rem 0 0;
 }
 
-.error-table {
+.data-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 0.75rem;
   font-size: 0.85rem;
 }
 
-.error-table th,
-.error-table td {
+.data-table th,
+.data-table td {
   border: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
   text-align: left;
 }
 
-.error-table th {
+.data-table th {
   background: var(--surface);
   color: var(--text);
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.nav-tabs button {
+  font: inherit;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.nav-tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.notice {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.status-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }

@@ -1,11 +1,20 @@
 import logging
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.schemas import PublicationRequest, PublicationResponse, ValidationErrorDetail, error_response
+from app.api.v1.schemas import (
+    PublicationHistoryItem,
+    PublicationHistoryResponse,
+    PublicationRequest,
+    PublicationResponse,
+    ValidationErrorDetail,
+    error_response,
+)
 from app.application.publication_use_case import PublicationUseCase, PublicationValidationError
 from app.infrastructure.database import get_session, get_test_session
+from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.parsing.exceptions import GoogleSheetsAccessError, GoogleSheetsNotFoundError, ParserError
 from app.publication.errors import DuplicatePublicationError, PublicationConflictError, TestModeUnavailableError
 from app.publication.seller_access import resolve_seller_access
@@ -88,4 +97,29 @@ def create_publication(
         deactivated=result.deactivated_count,
         message="Публикация выполнена успешно",
         mode=result.mode,
+    )
+
+
+@router.get("", response_model=PublicationHistoryResponse)
+def list_publications(
+    access_token: str,
+    session: Session = Depends(get_session),
+    resolve_access=Depends(get_seller_access_resolver),
+) -> PublicationHistoryResponse | JSONResponse:
+    access = resolve_access(access_token)
+    if access is None:
+        return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
+
+    publications = CatalogPublicationRepository(session).list_by_seller(access.seller_id)
+    return PublicationHistoryResponse(
+        publications=[
+            PublicationHistoryItem(
+                version=p.version,
+                published_at=p.published_at,
+                created=p.created_count,
+                updated=p.updated_count,
+                deactivated=p.deactivated_count,
+            )
+            for p in publications
+        ]
     )

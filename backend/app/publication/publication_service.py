@@ -71,6 +71,9 @@ class PublicationService:
                 publication_key=publication_key,
                 catalog_hash=catalog_hash,
                 published_by=published_by,
+                created_count=created,
+                updated_count=updated,
+                deactivated_count=deactivated,
             )
             self.seller_gateway.update_current_publication(
                 seller_id, publication_key=publication_key, catalog_hash=catalog_hash, catalog_version=new_version

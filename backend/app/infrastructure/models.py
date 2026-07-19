@@ -89,3 +89,6 @@ class CatalogPublication(Base):
     catalog_hash: Mapped[str] = mapped_column(String(64))
     published_at: Mapped[datetime] = mapped_column(DateTime)
     published_by: Mapped[int] = mapped_column(Integer)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, default=0)
+    deactivated_count: Mapped[int] = mapped_column(Integer, default=0)

@@ -76,3 +76,36 @@ def test_list_active_seller_ids_ignores_unknown_ids(session):
     result = SellerGateway(session).list_active_seller_ids([active_id, 999_999])
 
     assert result == {active_id}
+
+
+def test_get_status_returns_active_flag_and_version(session):
+    seller_id = insert_seller(session, name="Продавец статус", publication_key="key", catalog_hash="hash")
+    session.execute(
+        text("UPDATE Seller SET is_active = TRUE, current_catalog_version = 3 WHERE id = :id"), {"id": seller_id}
+    )
+
+    status = SellerGateway(session).get_status(seller_id)
+
+    assert status.is_active is True
+    assert status.current_catalog_version == 3
+
+
+def test_get_status_defaults_version_to_zero_when_never_published(session):
+    seller_id = insert_seller(session, name="Продавец без публикаций для статуса", publication_key=None, catalog_hash=None)
+
+    status = SellerGateway(session).get_status(seller_id)
+
+    assert status.current_catalog_version == 0
+
+
+def test_get_status_returns_none_for_missing_seller(session):
+    assert SellerGateway(session).get_status(999_999) is None
+
+
+def test_get_status_returns_false_for_inactive_seller(session):
+    seller_id = insert_seller(session, name="Продавец неактивен для статуса", publication_key=None, catalog_hash=None)
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
+
+    status = SellerGateway(session).get_status(seller_id)
+
+    assert status.is_active is False

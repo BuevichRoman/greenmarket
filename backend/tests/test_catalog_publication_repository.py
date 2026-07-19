@@ -48,3 +48,46 @@ def test_exists_with_key_true_after_create_false_before(session):
     repository.create(seller_id=seller_id, version=1, publication_key="unique-key-1", catalog_hash="hash-1", published_by=user_id)
 
     assert repository.exists_with_key("unique-key-1") is True
+
+
+def test_create_persists_counts(session):
+    seller_id, user_id = insert_seller_and_user(session, name="Продавец со счётчиками")
+    repository = CatalogPublicationRepository(session)
+
+    publication = repository.create(
+        seller_id=seller_id, version=1, publication_key="key-counts", catalog_hash="hash-counts",
+        published_by=user_id, created_count=2, updated_count=1, deactivated_count=3,
+    )
+
+    assert publication.created_count == 2
+    assert publication.updated_count == 1
+    assert publication.deactivated_count == 3
+
+
+def test_create_defaults_counts_to_zero_when_not_given(session):
+    seller_id, user_id = insert_seller_and_user(session, name="Продавец без счётчиков")
+    repository = CatalogPublicationRepository(session)
+
+    publication = repository.create(
+        seller_id=seller_id, version=1, publication_key="key-default", catalog_hash="hash-default", published_by=user_id
+    )
+
+    assert publication.created_count == 0
+    assert publication.updated_count == 0
+    assert publication.deactivated_count == 0
+
+
+def test_list_by_seller_orders_newest_version_first(session):
+    seller_id, user_id = insert_seller_and_user(session, name="Продавец с историей")
+    repository = CatalogPublicationRepository(session)
+    repository.create(seller_id=seller_id, version=1, publication_key="key-hist-1", catalog_hash="hash-hist-1", published_by=user_id, created_count=1)
+    repository.create(seller_id=seller_id, version=2, publication_key="key-hist-2", catalog_hash="hash-hist-2", published_by=user_id, updated_count=1)
+
+    result = repository.list_by_seller(seller_id)
+
+    assert [p.version for p in result] == [2, 1]
+
+
+def test_list_by_seller_returns_empty_list_for_seller_never_published(session):
+    seller_id, _ = insert_seller_and_user(session, name="Продавец без истории")
+    assert CatalogPublicationRepository(session).list_by_seller(seller_id) == []
