@@ -14,6 +14,7 @@ export interface PublicationSuccess {
   updated: number
   deactivated: number
   message: string
+  mode: 'prod' | 'test'
 }
 
 export interface ValidationErrorDetail {

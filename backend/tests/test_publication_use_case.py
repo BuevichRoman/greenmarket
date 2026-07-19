@@ -30,7 +30,7 @@ def insert_user(session, *, name: str) -> int:
     return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
 
 
-def make_resource(catalog_rows: list[list[object]]) -> FakeSheetsResource:
+def make_resource(catalog_rows: list[list[object]], system_rows: list[list[object]] | None = None) -> FakeSheetsResource:
     return FakeSheetsResource(
         ["Каталог", "Товарные группы", "Товарные позиции", "Инструкция", "_System"],
         rows_by_title={
@@ -38,7 +38,7 @@ def make_resource(catalog_rows: list[list[object]]) -> FakeSheetsResource:
             "Товарные группы": [PRODUCT_GROUPS_HEADER],
             "Товарные позиции": [PRODUCTS_HEADER],
             "Инструкция": [["текст"]],
-            "_System": SYSTEM_ROWS,
+            "_System": system_rows if system_rows is not None else SYSTEM_ROWS,
         },
     )
 
@@ -81,3 +81,49 @@ def test_republishing_same_content_is_idempotent_no_op(committing_session):
 
     assert first.publication_key != second.publication_key  # новый ключ на каждый вызов (CR-001)
     assert (second.created_count, second.updated_count, second.deactivated_count) == (0, 0, 0)
+
+
+def test_no_mode_row_defaults_to_prod_result(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма без Mode")
+    user_id = insert_user(committing_session, name="Admin")
+    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]])
+    use_case = PublicationUseCase(committing_session, parser_resource=resource)
+
+    result = use_case.publish("sheet-mode-default", seller_id=seller_id, published_by=user_id)
+
+    assert result.mode == "prod"
+
+
+def test_mode_test_writes_to_test_session_not_prod(committing_session, test_committing_session):
+    from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
+
+    # seller_id намеренно существует только в тестовой схеме — если бы код
+    # ошибочно писал в прод (committing_session), FK на Seller там бы упал.
+    seller_id = insert_seller(test_committing_session, name="Ферма TEST-режим")
+    user_id = insert_user(test_committing_session, name="Admin")
+    resource = make_resource(
+        [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+        system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
+    )
+    use_case = PublicationUseCase(committing_session, test_committing_session, parser_resource=resource)
+
+    result = use_case.publish("sheet-mode-test", seller_id=seller_id, published_by=user_id)
+
+    assert result.mode == "test"
+    assert result.success is True
+    seller_products = SellerProductRepository(test_committing_session).list_by_seller(seller_id)
+    assert len(seller_products) == 1
+
+
+def test_mode_test_without_configured_test_session_raises_clear_error():
+    from app.publication.errors import TestModeUnavailableError
+
+    resource = make_resource(
+        [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+        system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
+    )
+    use_case = PublicationUseCase(None, None, parser_resource=resource)
+
+    import pytest
+    with pytest.raises(TestModeUnavailableError):
+        use_case.publish("sheet-mode-unavailable", seller_id=1, published_by=1)

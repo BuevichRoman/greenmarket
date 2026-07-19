@@ -28,6 +28,7 @@ class PublicationResponse(BaseModel):
     updated: int
     deactivated: int
     message: str
+    mode: str
 
 
 class ValidationErrorDetail(BaseModel):

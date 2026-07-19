@@ -148,6 +148,26 @@ h1 {
   color: var(--danger);
 }
 
+.mode-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.mode-badge.mode-test {
+  background: #7c3f00;
+  color: #ffd9a8;
+}
+
+.mode-badge.mode-prod {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
 .counts {
   list-style: none;
   margin: 0;

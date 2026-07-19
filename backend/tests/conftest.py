@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.infrastructure.database import SessionLocal, engine
+from app.infrastructure.database import SessionLocal, engine, test_engine
 
 
 @pytest.fixture
@@ -36,6 +36,24 @@ def committing_session():
     теста целиком — БД не засоряется тестовыми публикациями.
     """
     connection = engine.connect()
+    transaction = connection.begin()
+    db_session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        yield db_session
+    finally:
+        db_session.close()
+        transaction.rollback()
+        connection.close()
+
+
+@pytest.fixture
+def test_committing_session():
+    """Та же механика, что committing_session, но на ОТДЕЛЬНОЙ схеме
+    (greenmarket_test, TEST_DB_NAME) — нужна, чтобы тесты могли реально
+    проверить, что Mode=TEST пишет в другую БД, а не просто доверять коду."""
+    if test_engine is None:
+        pytest.skip("TEST_DB_NAME не настроен — тестовая схема недоступна")
+    connection = test_engine.connect()
     transaction = connection.begin()
     db_session = Session(bind=connection, join_transaction_mode="create_savepoint")
     try:

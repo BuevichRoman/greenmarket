@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.schemas import PublicationRequest, PublicationResponse, ValidationErrorDetail, error_response
 from app.application.publication_use_case import PublicationUseCase, PublicationValidationError
-from app.infrastructure.database import get_session
+from app.infrastructure.database import get_session, get_test_session
 from app.parsing.exceptions import GoogleSheetsAccessError, GoogleSheetsNotFoundError, ParserError
-from app.publication.errors import DuplicatePublicationError, PublicationConflictError
+from app.publication.errors import DuplicatePublicationError, PublicationConflictError, TestModeUnavailableError
 from app.publication.seller_access import resolve_seller_access
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ def get_seller_access_resolver():
 def create_publication(
     request: PublicationRequest,
     session: Session = Depends(get_session),
+    test_session: Session | None = Depends(get_test_session),
     parser_resource=Depends(get_google_sheets_parser_resource),
     resolve_access=Depends(get_seller_access_resolver),
 ):
@@ -46,8 +47,10 @@ def create_publication(
     logger.info("Публикация начата: seller_id=%s spreadsheet_id=%s", access.seller_id, spreadsheet_id)
 
     try:
-        use_case = PublicationUseCase(session, parser_resource=parser_resource)
+        use_case = PublicationUseCase(session, test_session, parser_resource=parser_resource)
         result = use_case.publish(spreadsheet_id, seller_id=access.seller_id, published_by=access.published_by)
+    except TestModeUnavailableError as exc:
+        return error_response(422, "TEST_MODE_UNAVAILABLE", str(exc))
     except PublicationValidationError as exc:
         return error_response(
             422,
@@ -84,4 +87,5 @@ def create_publication(
         updated=result.updated_count,
         deactivated=result.deactivated_count,
         message="Публикация выполнена успешно",
+        mode=result.mode,
     )

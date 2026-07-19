@@ -12,3 +12,8 @@ class DuplicatePublicationError(PublicationError):
 class PublicationConflictError(PublicationError):
     """Строка каталога ссылается на SellerProductId, который не существует
     или принадлежит другому продавцу."""
+
+
+class TestModeUnavailableError(PublicationError):
+    """Рабочая книга запросила Mode=TEST, но на этом окружении не настроена
+    тестовая БД (TEST_DB_NAME)."""

@@ -94,7 +94,12 @@ function App() {
 
           {result && result.ok && (
             <div className="result success">
-              <h2>Публикация выполнена успешно</h2>
+              <h2>
+                Публикация выполнена успешно{' '}
+                <span className={`mode-badge mode-${result.data.mode}`}>
+                  {result.data.mode === 'test' ? 'ТЕСТ' : 'БОЙ'}
+                </span>
+              </h2>
               <ul className="counts">
                 <li>Создано: {result.data.created}</li>
                 <li>Обновлено: {result.data.updated}</li>

@@ -37,7 +37,7 @@ def insert_user(session, *, name: str) -> int:
     return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
 
 
-def make_resource(catalog_rows, **overrides) -> FakeSheetsResource:
+def make_resource(catalog_rows, system_rows=None, **overrides) -> FakeSheetsResource:
     return FakeSheetsResource(
         ["Каталог", "Товарные группы", "Товарные позиции", "Инструкция", "_System"],
         rows_by_title={
@@ -45,7 +45,7 @@ def make_resource(catalog_rows, **overrides) -> FakeSheetsResource:
             "Товарные группы": [PRODUCT_GROUPS_HEADER],
             "Товарные позиции": [PRODUCTS_HEADER],
             "Инструкция": [["текст"]],
-            "_System": SYSTEM_ROWS,
+            "_System": system_rows if system_rows is not None else SYSTEM_ROWS,
         },
         **overrides,
     )
@@ -62,6 +62,15 @@ def override_session(committing_session):
 
 def override_resource(resource):
     app.dependency_overrides[get_google_sheets_parser_resource] = lambda: resource
+
+
+def override_test_session(test_session):
+    from app.infrastructure.database import get_test_session
+
+    def _get_test_session():
+        yield test_session
+
+    app.dependency_overrides[get_test_session] = _get_test_session
 
 
 def test_successful_publication_returns_200(committing_session):
@@ -84,6 +93,59 @@ def test_successful_publication_returns_200(committing_session):
     body = response.json()
     assert body["success"] is True
     assert body["created"] == 1
+    assert body["mode"] == "prod"
+
+
+def test_mode_test_publishes_to_test_session_and_reports_mode(committing_session, test_committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(test_committing_session, name="Ферма API тест-режим")
+    user_id = insert_user(test_committing_session, name="Admin")
+    override_session(committing_session)
+    override_test_session(test_committing_session)
+    override_seller_access(seller_id, user_id)
+    override_resource(
+        make_resource(
+            [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+            system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
+        )
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-mode-test"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["mode"] == "test"
+
+
+def test_mode_test_without_test_session_returns_422(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма без тестовой БД")
+    user_id = insert_user(committing_session, name="Admin")
+    override_session(committing_session)
+    override_test_session(None)
+    override_seller_access(seller_id, user_id)
+    override_resource(
+        make_resource(
+            [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+            system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
+        )
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-mode-unavailable"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "TEST_MODE_UNAVAILABLE"
 
 
 def test_missing_or_invalid_access_token_returns_403(committing_session):

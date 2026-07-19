@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     google_service_account_file: str = ""
     google_sheets_timeout_seconds: float = 10.0
     seller_access_tokens: str = "{}"
+    test_db_name: str = ""
 
 
 settings = Settings()

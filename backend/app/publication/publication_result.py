@@ -10,3 +10,4 @@ class PublicationResult:
     deactivated_count: int
     publication_key: str
     catalog_hash: str
+    mode: str = "prod"

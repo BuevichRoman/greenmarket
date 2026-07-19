@@ -45,7 +45,7 @@ class PublicationService:
         self.catalog_publication_repository = catalog_publication_repository
 
     def publish(
-        self, model: PublicationModel, published_by: int, *, publication_key: str, catalog_hash: str
+        self, model: PublicationModel, published_by: int, *, publication_key: str, catalog_hash: str, mode: str = "prod"
     ) -> PublicationResult:
         seller_id = model.metadata.seller_id
 
@@ -89,6 +89,7 @@ class PublicationService:
                 deactivated_count=deactivated,
                 publication_key=publication_key,
                 catalog_hash=catalog_hash,
+                mode=mode,
             )
         except IntegrityError as exc:
             self.session.rollback()
