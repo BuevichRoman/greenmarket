@@ -100,3 +100,12 @@ def test_get_status_defaults_version_to_zero_when_never_published(session):
 
 def test_get_status_returns_none_for_missing_seller(session):
     assert SellerGateway(session).get_status(999_999) is None
+
+
+def test_get_status_returns_false_for_inactive_seller(session):
+    seller_id = insert_seller(session, name="Продавец неактивен для статуса", publication_key=None, catalog_hash=None)
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
+
+    status = SellerGateway(session).get_status(seller_id)
+
+    assert status.is_active is False
