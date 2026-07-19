@@ -2,8 +2,7 @@
 // ErrorResponse) — единственный реально реализованный сейчас Publication API.
 
 export interface PublicationRequest {
-  seller_id: number
-  published_by: number
+  access_token: string
   sheet_url?: string
   spreadsheet_id?: string
 }

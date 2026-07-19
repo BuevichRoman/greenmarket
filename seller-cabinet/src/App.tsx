@@ -15,25 +15,51 @@ import type { PublishResult } from './api'
 
 type Status = 'idle' | 'loading' | 'done'
 
+// Токен — единственный способ идентифицировать продавца (см. app/publication/
+// seller_access.py на бэкенде): персональная ссылка вида /?token=... вместо
+// открытых полей seller_id/published_by, которые раньше позволяли
+// опубликовать каталог от имени любого чужого продавца.
+function readAccessToken(): string | null {
+  return new URLSearchParams(window.location.search).get('token')
+}
+
 function App() {
-  const [sellerId, setSellerId] = useState('')
-  const [publishedBy, setPublishedBy] = useState('')
+  const [accessToken] = useState(readAccessToken)
   const [sheetInput, setSheetInput] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [result, setResult] = useState<PublishResult | null>(null)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (!accessToken) return
     setStatus('loading')
     setResult(null)
     const isUrl = sheetInput.includes('/')
     const res = await publish({
-      seller_id: Number(sellerId),
-      published_by: Number(publishedBy),
+      access_token: accessToken,
       ...(isUrl ? { sheet_url: sheetInput } : { spreadsheet_id: sheetInput }),
     })
     setResult(res)
     setStatus('done')
+  }
+
+  if (!accessToken) {
+    return (
+      <div className="app">
+        <header className="app-header">
+          <span className="logo">🧑‍🌾 GreenMarket — Seller Cabinet</span>
+        </header>
+        <main>
+          <section className="screen">
+            <h1>Нет доступа</h1>
+            <p className="hint">
+              В ссылке нет персонального токена продавца (<code>?token=…</code>). Обратитесь за своей ссылкой к
+              GreenMarket — вводить чужой Seller ID вручную больше нельзя.
+            </p>
+          </section>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -51,26 +77,6 @@ function App() {
           </p>
 
           <form className="publish-form" onSubmit={handleSubmit}>
-            <label>
-              Seller ID
-              <input
-                type="number"
-                required
-                value={sellerId}
-                onChange={(e) => setSellerId(e.target.value)}
-                placeholder="например, 1669"
-              />
-            </label>
-            <label>
-              Published by (id_user администратора/продавца)
-              <input
-                type="number"
-                required
-                value={publishedBy}
-                onChange={(e) => setPublishedBy(e.target.value)}
-                placeholder="например, 2566"
-              />
-            </label>
             <label>
               Spreadsheet ID или ссылка на таблицу
               <input
