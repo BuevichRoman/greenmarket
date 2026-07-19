@@ -363,3 +363,53 @@ def test_spreadsheet_id_is_extracted_from_sheet_url(committing_session):
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
+
+
+def test_get_publications_returns_empty_history_for_new_seller(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Продавец без истории API")
+    override_session(committing_session)
+    override_seller_access(seller_id, seller_id)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/publications", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {"publications": []}
+
+
+def test_get_publications_returns_history_newest_first(committing_session):
+    from fastapi.testclient import TestClient
+    from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
+
+    seller_id = insert_seller(committing_session, name="Продавец с историей API")
+    user_id = insert_user(committing_session, name="Admin история")
+    repo = CatalogPublicationRepository(committing_session)
+    repo.create(seller_id=seller_id, version=1, publication_key="hist-key-1", catalog_hash="hist-hash-1", published_by=user_id, created_count=2)
+    repo.create(seller_id=seller_id, version=2, publication_key="hist-key-2", catalog_hash="hist-hash-2", published_by=user_id, updated_count=1)
+    override_session(committing_session)
+    override_seller_access(seller_id, user_id)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/publications", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert [p["version"] for p in body["publications"]] == [2, 1]
+    assert body["publications"][1]["created"] == 2
+
+
+def test_get_publications_rejects_invalid_token(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/publications", params={"access_token": "not-a-real-token"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"

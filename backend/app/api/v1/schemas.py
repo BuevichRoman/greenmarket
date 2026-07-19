@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -29,6 +30,18 @@ class PublicationResponse(BaseModel):
     deactivated: int
     message: str
     mode: str
+
+
+class PublicationHistoryItem(BaseModel):
+    version: int
+    published_at: datetime
+    created: int
+    updated: int
+    deactivated: int
+
+
+class PublicationHistoryResponse(BaseModel):
+    publications: list[PublicationHistoryItem]
 
 
 class ValidationErrorDetail(BaseModel):
