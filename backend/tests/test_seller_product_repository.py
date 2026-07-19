@@ -106,3 +106,18 @@ def test_list_published_for_products_filters_by_product_id(session):
 
 def test_list_published_for_products_returns_empty_list_for_empty_input(session):
     assert SellerProductRepository(session).list_published_for_products([]) == []
+
+
+def test_count_published_counts_only_published(session):
+    seller_id = insert_seller(session, name="Продавец для count_published")
+    repository = SellerProductRepository(session)
+    repository.create(seller_id=seller_id, product_id=None, seller_name="Опубликован для count", price=1, stock=1, unit="шт", description=None)
+    unpublished = repository.create(seller_id=seller_id, product_id=None, seller_name="Не опубликован для count", price=1, stock=1, unit="шт", description=None)
+    session.execute(text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"), {"id": unpublished.id})
+
+    assert repository.count_published(seller_id) == 1
+
+
+def test_count_published_returns_zero_for_seller_without_products(session):
+    seller_id = insert_seller(session, name="Продавец без товаров для count_published")
+    assert SellerProductRepository(session).count_published(seller_id) == 0
