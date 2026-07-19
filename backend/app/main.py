@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.publications import router as publications_router
+from app.api.v1.seller import router as seller_router
 from app.infrastructure.database import get_session
 
 app = FastAPI(
@@ -15,6 +16,7 @@ app = FastAPI(
 )
 app.include_router(publications_router)
 app.include_router(catalog_router)
+app.include_router(seller_router)
 
 
 @app.exception_handler(RequestValidationError)
