@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
+from app.infrastructure.repositories.seller_product_photo_repository import SellerProductPhotoRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.mapping.mapper import Mapper
 from app.parsing.google_sheets_parser import GoogleSheetsParser
@@ -73,6 +74,7 @@ class PublicationUseCase:
             product_repository=ProductRepository(session),
             product_group_repository=ProductGroupRepository(session),
             catalog_publication_repository=CatalogPublicationRepository(session),
+            seller_product_photo_repository=SellerProductPhotoRepository(session),
         )
         return publication_service.publish(
             model, published_by, publication_key=publication_key, catalog_hash=catalog_hash, mode=mode
