@@ -8,6 +8,7 @@ from app.infrastructure.repositories.product_repository import ProductRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.mapping.mapper import Mapper
 from app.parsing.google_sheets_parser import GoogleSheetsParser
+from app.platform.photo_gateway import PhotoGateway
 from app.platform.seller_gateway import SellerGateway
 from app.publication.errors import TestModeUnavailableError
 from app.publication.hash_calculator import HashCalculator
@@ -55,7 +56,7 @@ class PublicationUseCase:
         catalog_hash = self.hash_calculator.compute(workbook)
         validator = Validator(
             StructureValidator(),
-            SemanticValidator(ProductGroupRepository(session), ProductRepository(session)),
+            SemanticValidator(ProductGroupRepository(session), ProductRepository(session), PhotoGateway(session)),
             BusinessValidator(),
         )
         validation_result = validator.validate(workbook)
