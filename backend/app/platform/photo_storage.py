@@ -19,9 +19,9 @@ class PhotoStorage:
     продавца (нет коллизий, не раскрывает исходное имя файла).
     """
 
-    def __init__(self, *, bucket: str, client=None):
+    def __init__(self, *, bucket: str, region: str | None = None, client=None):
         self.bucket = bucket
-        self.client = client if client is not None else boto3.client("s3")
+        self.client = client if client is not None else boto3.client("s3", region_name=region)
 
     def upload(self, file_bytes: bytes, content_type: str) -> str:
         extension = _EXTENSION_BY_CONTENT_TYPE.get(content_type)

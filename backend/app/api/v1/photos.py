@@ -50,7 +50,7 @@ def upload_photo(
     if len(file_bytes) > _MAX_FILE_SIZE_BYTES:
         return error_response(413, "FILE_TOO_LARGE", "Файл превышает допустимый размер 10 МБ")
 
-    photo_storage = storage if storage is not None else PhotoStorage(bucket=settings.s3_bucket)
+    photo_storage = storage if storage is not None else PhotoStorage(bucket=settings.s3_bucket, region=settings.s3_region)
     try:
         s3_key = photo_storage.upload(file_bytes, file.content_type)
     except Exception as exc:

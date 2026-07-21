@@ -41,3 +41,17 @@ def test_upload_rejects_unsupported_content_type():
 
     with pytest.raises(UnsupportedContentTypeError):
         storage.upload(b"data", "application/pdf")
+
+
+def test_region_is_passed_to_boto3_client_when_no_client_injected(monkeypatch):
+    calls = []
+
+    def fake_boto3_client(service_name, **kwargs):
+        calls.append((service_name, kwargs))
+        return FakeS3Client()
+
+    monkeypatch.setattr("app.platform.photo_storage.boto3.client", fake_boto3_client)
+
+    PhotoStorage(bucket="test-bucket", region="eu-north-1")
+
+    assert calls == [("s3", {"region_name": "eu-north-1"})]
