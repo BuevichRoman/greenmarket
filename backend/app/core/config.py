@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     google_service_account_file: str = ""
     google_sheets_timeout_seconds: float = 10.0
     seller_access_tokens: str = "{}"
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
     test_db_name: str = ""
 
 
