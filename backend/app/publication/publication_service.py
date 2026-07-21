@@ -7,6 +7,7 @@ from app.infrastructure.models import SellerProduct
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
+from app.infrastructure.repositories.seller_product_photo_repository import SellerProductPhotoRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.mapping.publication_model import PublicationModel, PublicationProduct
 from app.platform.seller_gateway import SellerGateway
@@ -36,6 +37,7 @@ class PublicationService:
         product_repository: ProductRepository,
         product_group_repository: ProductGroupRepository,
         catalog_publication_repository: CatalogPublicationRepository,
+        seller_product_photo_repository: SellerProductPhotoRepository,
     ):
         self.session = session
         self.seller_gateway = seller_gateway
@@ -43,6 +45,7 @@ class PublicationService:
         self.product_repository = product_repository
         self.product_group_repository = product_group_repository
         self.catalog_publication_repository = catalog_publication_repository
+        self.seller_product_photo_repository = seller_product_photo_repository
 
     def publish(
         self, model: PublicationModel, published_by: int, *, publication_key: str, catalog_hash: str, mode: str = "prod"
@@ -115,6 +118,11 @@ class PublicationService:
 
     def _apply_catalog(self, products: list[PublicationProduct], seller_id: int) -> tuple[int, int, int]:
         existing_by_id = {sp.id: sp for sp in self.seller_product_repository.list_by_seller(seller_id)}
+        # N+1 сознательно — размер каталога продавца на Stage 1 мал, не
+        # оптимизируем заранее (YAGNI).
+        existing_photo_ids_by_id = {
+            sp_id: self.seller_product_photo_repository.list_photo_ids(sp_id) for sp_id in existing_by_id
+        }
         seen_ids: set[int] = set()
         created = updated = 0
 
@@ -122,7 +130,7 @@ class PublicationService:
             product_id = self._resolve_product_id(item)
 
             if item.seller_product_id is None:
-                self.seller_product_repository.create(
+                seller_product = self.seller_product_repository.create(
                     seller_id=seller_id,
                     product_id=product_id,
                     seller_name=item.seller_name,
@@ -131,6 +139,7 @@ class PublicationService:
                     unit=item.unit,
                     description=item.description,
                 )
+                self.seller_product_photo_repository.replace_for_product(seller_product.id, item.photo_ids)
                 created += 1
                 continue
 
@@ -141,7 +150,8 @@ class PublicationService:
                 )
 
             seen_ids.add(existing.id)
-            if self._has_changed(existing, item, product_id):
+            photos_changed = existing_photo_ids_by_id.get(existing.id, []) != item.photo_ids
+            if self._has_changed(existing, item, product_id) or photos_changed:
                 if existing.product_id != product_id:
                     # Смена товарной позиции — новая заявка на классификацию
                     # (docs/02-domain/Catalog_Template.md, "Изменение товарной
@@ -158,6 +168,7 @@ class PublicationService:
                 existing.unit = item.unit
                 existing.description = item.description
                 existing.is_published = True
+                self.seller_product_photo_repository.replace_for_product(existing.id, item.photo_ids)
                 updated += 1
 
         deactivated = 0
