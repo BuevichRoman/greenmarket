@@ -16,6 +16,7 @@ _COL_UNIT = _COLUMN_INDEX["Единица продажи"]
 _COL_STOCK = _COLUMN_INDEX["Остаток"]
 _COL_DESCRIPTION = _COLUMN_INDEX["Описание"]
 _COL_ATTRIBUTES = _COLUMN_INDEX["Дополнительные характеристики"]
+_COL_PHOTOS = _COLUMN_INDEX["Фото"]
 
 
 def _cell(row: list[object], index: int) -> object:
@@ -28,6 +29,12 @@ def _blank_to_none(value: object) -> object:
 
 def _to_str_or_none(value: object) -> str | None:
     return None if value is None else str(value)
+
+
+def _parse_photo_ids(value: object) -> list[int]:
+    if value is None or value == "":
+        return []
+    return [int(part.strip()) for part in str(value).split(";") if part.strip()]
 
 
 class Mapper:
@@ -68,6 +75,7 @@ class Mapper:
                 stock=float(_cell(row, _COL_STOCK)),
                 description=_to_str_or_none(_blank_to_none(_cell(row, _COL_DESCRIPTION))),
                 attributes=_to_str_or_none(_blank_to_none(_cell(row, _COL_ATTRIBUTES))),
+                photo_ids=_parse_photo_ids(_cell(row, _COL_PHOTOS)),
             )
         except (TypeError, ValueError) as exc:
             # Workbook уже должен быть провалидирован — сюда попадает только

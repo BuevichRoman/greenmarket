@@ -12,6 +12,7 @@ class PublicationProduct:
     stock: float
     description: str | None
     attributes: str | None
+    photo_ids: list[int]
 
 
 @dataclass(frozen=True)

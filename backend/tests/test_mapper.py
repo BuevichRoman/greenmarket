@@ -18,10 +18,11 @@ CATALOG_HEADER = [
     "Остаток",
     "Описание",
     "Дополнительные характеристики",
+    "Фото",
 ]
 
 SYSTEM_ROWS = [
-    ["TemplateVersion", "1.0"],
+    ["TemplateVersion", "2.0"],
     ["TemplateId", "template-1"],
 ]
 
@@ -40,7 +41,7 @@ VALID_RESULT = ValidationResult(errors=[])
 
 
 def test_maps_single_valid_row_into_publication_product():
-    workbook = make_workbook([[1, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, "Свежая морковь", "Сорт: Нантская"]])
+    workbook = make_workbook([[1, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, "Свежая морковь", "Сорт: Нантская", "5"]])
 
     result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
 
@@ -55,13 +56,14 @@ def test_maps_single_valid_row_into_publication_product():
     assert product.stock == 10
     assert product.description == "Свежая морковь"
     assert product.attributes == "Сорт: Нантская"
+    assert product.photo_ids == [5]
 
 
 def test_maps_multiple_catalog_rows_in_order():
     workbook = make_workbook(
         [
-            [1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None],
-            [2, "Ферма Б", "Фрукты", "Яблоко", 80, "кг", 20, None, None],
+            [1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, "1"],
+            [2, "Ферма Б", "Фрукты", "Яблоко", 80, "кг", 20, None, None, "2;3"],
         ]
     )
 
@@ -69,6 +71,7 @@ def test_maps_multiple_catalog_rows_in_order():
 
     assert [p.seller_product_id for p in result.products] == [1, 2]
     assert [p.product_name for p in result.products] == ["Морковь", "Яблоко"]
+    assert [p.photo_ids for p in result.products] == [[1], [2, 3]]
 
 
 def test_empty_catalog_maps_to_empty_products_list():
@@ -85,7 +88,7 @@ def test_ignores_reference_sheets_and_instruction_sheet():
         RawSheet(name="Товарные позиции", index=3, rows=[["1", "1", "Морковь"]]),
         RawSheet(name="Инструкция", index=4, rows=[["свободный текст"]]),
     ]
-    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None]], extra_sheets=extra)
+    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, "1"]], extra_sheets=extra)
 
     result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
 
@@ -98,12 +101,12 @@ def test_maps_system_sheet_and_seller_id_into_metadata():
     result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
 
     assert result.metadata.seller_id == 42
-    assert result.metadata.template_version == "1.0"
+    assert result.metadata.template_version == "2.0"
     assert result.metadata.template_id == "template-1"
 
 
 def test_raises_mapper_error_when_validation_result_has_errors():
-    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None]])
+    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, "1"]])
     invalid_result = ValidationResult(errors=[ValidationError(sheet="Каталог", message="что-то не так")])
 
     with pytest.raises(MapperError):
@@ -135,7 +138,7 @@ def test_row_that_violates_the_validated_contract_raises_mapper_error_not_a_raw_
     # Симулирует нарушение контракта «Workbook уже провалидирован» — Validator
     # такую строку никогда бы не пропустил, но если это всё же произошло, Mapper
     # обязан упасть предсказуемым MapperError, а не сырым TypeError/IndexError.
-    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", None, "кг", 5, None, None]])
+    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", None, "кг", 5, None, None, "1"]])
 
     with pytest.raises(MapperError):
         Mapper().map(workbook, VALID_RESULT, seller_id=42)
@@ -145,7 +148,7 @@ def test_coerces_non_string_catalog_cells_to_str():
     # SemanticValidator проверяет "Наименование продавца"/"Единица продажи" только
     # на непустоту (`if not value`), поэтому число вроде 777 проходит валидацию —
     # Mapper обязан привести их к единому строковому представлению.
-    workbook = make_workbook([[1, 777, "Овощи", "Морковь", 50, 7, 5, None, None]])
+    workbook = make_workbook([[1, 777, "Овощи", "Морковь", 50, 7, 5, None, None, "1"]])
 
     result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
 
@@ -169,7 +172,7 @@ def test_missing_system_sheet_raises_mapper_error():
 
 
 def test_blank_string_cells_normalize_to_none():
-    workbook = make_workbook([["", "Ферма А", "Овощи", "", 50, "кг", 5, "", ""]])
+    workbook = make_workbook([["", "Ферма А", "Овощи", "", 50, "кг", 5, "", "", ""]])
 
     product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
 
@@ -177,6 +180,7 @@ def test_blank_string_cells_normalize_to_none():
     assert product.product_name is None
     assert product.description is None
     assert product.attributes is None
+    assert product.photo_ids == []
 
 
 def test_hand_built_fixture_workbook_actually_passes_real_structure_validator():
@@ -185,7 +189,7 @@ def test_hand_built_fixture_workbook_actually_passes_real_structure_validator():
     from app.validation.structure_validator import StructureValidator
 
     full_workbook = make_workbook(
-        [[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None]],
+        [[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, "1"]],
         extra_sheets=[
             RawSheet(name="Товарные группы", index=2, rows=[["ProductGroupId", "ParentProductGroupId", "Наименование"], [1, None, "Овощи"]]),
             RawSheet(name="Товарные позиции", index=3, rows=[["ProductId", "ProductGroupId", "Наименование"], [1, 1, "Морковь"]]),
@@ -194,3 +198,19 @@ def test_hand_built_fixture_workbook_actually_passes_real_structure_validator():
     )
 
     assert StructureValidator().validate(full_workbook).is_valid
+
+
+def test_maps_semicolon_separated_photo_ids_in_order():
+    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, "12;15;7"]])
+
+    result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
+
+    assert result.products[0].photo_ids == [12, 15, 7]
+
+
+def test_empty_photo_cell_maps_to_empty_list():
+    workbook = make_workbook([[1, "Ферма А", "Овощи", "Морковь", 50, "кг", 5, None, None, None]])
+
+    result = Mapper().map(workbook, VALID_RESULT, seller_id=42)
+
+    assert result.products[0].photo_ids == []
