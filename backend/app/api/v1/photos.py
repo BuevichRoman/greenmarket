@@ -44,12 +44,21 @@ def upload_photo(
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         return error_response(422, "UNSUPPORTED_CONTENT_TYPE", f"Недопустимый тип файла '{file.content_type}'")
 
-    file_bytes = file.file.read()
+    # Читаем не больше лимита + 1 байт, чтобы никогда не держать в памяти
+    # произвольно большое тело запроса до проверки размера.
+    file_bytes = file.file.read(_MAX_FILE_SIZE_BYTES + 1)
     if len(file_bytes) > _MAX_FILE_SIZE_BYTES:
         return error_response(413, "FILE_TOO_LARGE", "Файл превышает допустимый размер 10 МБ")
 
     photo_storage = storage if storage is not None else PhotoStorage(bucket=settings.s3_bucket)
-    s3_key = photo_storage.upload(file_bytes, file.content_type)
+    try:
+        s3_key = photo_storage.upload(file_bytes, file.content_type)
+    except Exception as exc:
+        logger.exception("Ошибка загрузки фото в S3: seller_id=%s error=%s", access.seller_id, exc)
+        return error_response(500, "PHOTO_STORAGE_ERROR", "Не удалось загрузить фото")
+
+    # Если вставка в БД или commit упадут после успешной загрузки в S3, объект
+    # в S3 останется осиротевшим — в Stage 1 нет задачи очистки, это принятый компромисс.
     photo_id = PhotoGateway(session).create(s3_key=s3_key, seller_id=access.seller_id)
     session.commit()
 

@@ -130,3 +130,48 @@ def test_upload_photo_over_size_limit_returns_413(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "FILE_TOO_LARGE"
+
+
+def test_upload_photo_at_exact_size_limit_succeeds(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=1, published_by=1)
+    override_storage()
+    client = TestClient(app)
+
+    exact = b"x" * (10 * 1024 * 1024)
+    response = client.post(
+        "/api/v1/photos",
+        data={"access_token": VALID_TOKEN},
+        files={"file": ("exact.jpg", io.BytesIO(exact), "image/jpeg")},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 201
+    assert isinstance(response.json()["photo_id"], int)
+
+
+def test_upload_photo_storage_failure_returns_500(committing_session):
+    from fastapi.testclient import TestClient
+
+    from app.platform.photo_storage import PhotoStorage
+
+    class FailingPhotoStorage(PhotoStorage):
+        def upload(self, file_bytes, content_type):
+            raise RuntimeError("S3 недоступен")
+
+    override_session(committing_session)
+    override_seller_access(seller_id=1, published_by=1)
+    app.dependency_overrides[get_photo_storage] = lambda: FailingPhotoStorage(bucket="test-bucket", client=FakeS3Client())
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/photos",
+        data={"access_token": VALID_TOKEN},
+        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "PHOTO_STORAGE_ERROR"
