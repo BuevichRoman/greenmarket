@@ -14,7 +14,7 @@
 ## Нормативный артефакт
 
 Начиная с PR-008 нормативным артефактом шаблона является файл
-[`catalog_template_v2.xlsx`](templates/catalog_template_v2.xlsx), хранящийся
+[`catalog_template_v1.xlsx`](templates/catalog_template_v1.xlsx), хранящийся
 в этом репозитории. Файл версионируется в Git, открывается и в Excel, и в
 Google Sheets без потери структуры, используется в автоматических тестах
 Parser/Validator/Mapper (`backend/tests/test_catalog_template_artifact.py`) и
@@ -26,8 +26,8 @@ Google Drive и может быть пересоздана из него в лю
 источником истины не является.
 
 Примеры заполненного шаблона (для разработчиков и код-ревью, не для
-продавцов): [`templates/examples/catalog_template_v2_partial.xlsx`](templates/examples/catalog_template_v2_partial.xlsx),
-[`templates/examples/catalog_template_v2_full.xlsx`](templates/examples/catalog_template_v2_full.xlsx).
+продавцов): [`templates/examples/catalog_template_v1_partial.xlsx`](templates/examples/catalog_template_v1_partial.xlsx),
+[`templates/examples/catalog_template_v1_full.xlsx`](templates/examples/catalog_template_v1_full.xlsx).
 
 Файл порождается детерминированно скриптом `backend/app/catalog_template/build.py`
 (`uv run python -m app.catalog_template.build` из `backend/`) — при изменении
@@ -145,7 +145,7 @@ Google Drive и может быть пересоздана из него в лю
 3. При необходимости адаптировать `Validator` (`StructureValidator`/
    `SemanticValidator`/`BusinessValidator`) под новые поля/правила.
 4. Пересобрать нормативный артефакт: `uv run python -m app.catalog_template.build`
-   (`catalog_template_v2.xlsx`) и `build_examples.py` (примеры для тестов
+   (`catalog_template_v1.xlsx`) и `build_examples.py` (примеры для тестов
    полного пайплайна), закоммитить пересобранные файлы — они не редактируются
    вручную (см. «Нормативный артефакт» выше).
 5. Обновить этот документ и [Seller_Workspace.md](../05-ui/Seller_Workspace.md)
