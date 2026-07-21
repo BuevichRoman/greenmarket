@@ -40,20 +40,31 @@ ALTER TABLE Photo
 
 Nullable и без FK на `Seller` (платформенная таблица вне схемы GreenMarket, тот же паттерн, что `SellerProduct.seller_id`/`CatalogPublication.seller_id` — сырой `INTEGER`, не FK, см. `SellerGateway`).
 
-`backend/app/infrastructure/models.py`: добавить `seller_id: Mapped[int | None]` в `Photo`. `Photo` сейчас не смаплен как ORM-модель (`PhotoGateway` читает её сырым SQL) — модель нужно завести, т.к. `POST /api/v1/photos` создаёт запись через ORM (см. «Repository» ниже); `PhotoGateway` остаётся как есть (read-only sql, не трогаем).
+`Photo` по-прежнему не мапится как ORM-модель в `app/infrastructure/models.py` — этот принцип проекта не меняется данным циклом (см. «Repository/Gateway» ниже); новая колонка видна только через raw SQL в `PhotoGateway`.
 
-### Repository
+### Repository / Gateway
 
-Новый `PhotoRepository` (`backend/app/infrastructure/repositories/photo_repository.py`):
+`Photo` — платформенная таблица (как `Seller`), в проекте принципиально не мапится как ORM-модель (см. комментарий в начале `app/infrastructure/models.py`: «Платформенные таблицы Seller/User/Photo намеренно не отображаются как ORM-модели — GreenMarket ими не владеет»). Запись/чтение — тем же Anti-Corruption Layer, что `SellerGateway`/`PhotoGateway`, не новым ORM-репозиторием. Расширить существующий `app/platform/photo_gateway.py`:
 
 ```python
-class PhotoRepository:
-    def create(self, *, s3_key: str, seller_id: int) -> Photo: ...
-    def exists_all(self, photo_ids: list[int]) -> bool:
-        """Для SemanticValidator — все ли id существуют одним запросом."""
+def create(self, *, s3_key: str, seller_id: int) -> int:
+    """INSERT в Photo, возвращает id новой записи."""
+    result = self.session.execute(
+        text("INSERT INTO Photo (s3_key, seller_id, created_at) VALUES (:s3_key, :seller_id, :created_at)"),
+        {"s3_key": s3_key, "seller_id": seller_id, "created_at": datetime.now(timezone.utc)},
+    )
+    return result.lastrowid
+
+def exists_all(self, photo_ids: list[int]) -> bool:
+    """Для SemanticValidator — все ли id существуют одним запросом."""
+    if not photo_ids:
+        return True
+    stmt = text("SELECT COUNT(*) FROM Photo WHERE id IN :photo_ids").bindparams(bindparam("photo_ids", expanding=True))
+    count = self.session.execute(stmt, {"photo_ids": photo_ids}).scalar_one()
+    return count == len(set(photo_ids))
 ```
 
-Новый `SellerProductPhotoRepository` (`backend/app/infrastructure/repositories/seller_product_photo_repository.py`):
+`SellerProductPhoto`, в отличие от `Photo`, — новая таблица GreenMarket (не платформенная), уже смаплена как ORM-модель (`app/infrastructure/models.py`) — для неё обычный ORM-репозиторий уместен. Новый `SellerProductPhotoRepository` (`backend/app/infrastructure/repositories/seller_product_photo_repository.py`):
 
 ```python
 class SellerProductPhotoRepository:
@@ -84,10 +95,10 @@ class PhotoStorage:
 Новый файл `app/api/v1/photos.py`, роутер `prefix="/api/v1"`.
 
 - **Запрос:** `multipart/form-data`, поля `access_token` (str) + `file` (upload).
-- **Авторизация:** `resolve_seller_access(access_token)` — тот же механизм, что `POST /publications` (401, если токен невалиден).
+- **Авторизация:** `resolve_seller_access(access_token)` — тот же механизм, что `POST /publications` (`403 SELLER_ACCESS_DENIED`, если токен невалиден — тот же код ответа, что уже использует `POST /publications`).
 - **Валидация файла:** `content_type` из allowlist (`image/jpeg`, `image/png`, `image/webp`), ограничение размера (например 10 МБ) — `413`/`422` при нарушении. Без резайза/сжатия в этом цикле.
 - **Успех:** `201`, тело `{"photo_id": int}`.
-- **Логика:** `PhotoStorage.upload()` → `PhotoRepository.create(s3_key=..., seller_id=access.seller_id)` → commit → вернуть `photo_id`.
+- **Логика:** `PhotoStorage.upload()` → `PhotoGateway.create(s3_key=..., seller_id=access.seller_id)` → commit → вернуть `photo_id`.
 
 Endpoint полностью независим от Publication Pipeline — просто создаёт `Photo`, ни на что не ссылается. Связь с товаром появляется только при следующей публикации (через колонку «Фото» и `SellerProductPhoto`).
 
@@ -107,7 +118,7 @@ SUPPORTED_TEMPLATE_VERSIONS = {"2.0"}  # было {"1.0"}; старая верс
 
 ### `semantic_validator.py`
 
-Новая проверка на уровне строки: ячейка «Фото» → split по `;`, trim, каждый элемент — `int`; список не пуст (обязательное поле — та же ошибка `_required_field_empty`, если пусто); каждый `photo_id` существует в `Photo` (`PhotoRepository.exists_all`, один SQL-запрос на всю строку/весь каталог — не N+1, аналогично `product_group_repository.find_by_name` для группы, но батчево). Формат ошибки — как у остальных полей (`ValidationError(sheet, row, column="Фото", message=...)`).
+Новая проверка на уровне строки: ячейка «Фото» → split по `;`, trim, каждый элемент — `int`; список не пуст (обязательное поле — та же ошибка `_required_field_empty`, если пусто); каждый `photo_id` существует в `Photo` (`PhotoGateway.exists_all`, один SQL-запрос на всю строку/весь каталог — не N+1, аналогично `product_group_repository.find_by_name` для группы, но батчево). Формат ошибки — как у остальных полей (`ValidationError(sheet, row, column="Фото", message=...)`).
 
 ### `mapper.py`
 
@@ -132,7 +143,7 @@ SUPPORTED_TEMPLATE_VERSIONS = {"2.0"}  # было {"1.0"}; старая верс
 ## Тестирование
 
 - `PhotoStorage` — юнит-тест с моком S3-клиента (загрузка, генерация ключа, ошибка сети → проброс исключения).
-- `POST /api/v1/photos` — интеграционный тест: валидный токен + файл → `201` + `photo_id`; невалидный токен → `401`; неподдерживаемый `content_type` → `422`; файл сверх лимита → `413`.
+- `POST /api/v1/photos` — интеграционный тест: валидный токен + файл → `201` + `photo_id`; невалидный токен → `403`; неподдерживаемый `content_type` → `422`; файл сверх лимита → `413`.
 - `StructureValidator`/`SemanticValidator`/`Mapper` — тесты по образцу существующих (`test_mapper.py`, тесты валидаторов): новая колонка присутствует/отсутствует/пуста/содержит несуществующий id/несколько id.
 - `PublicationService._apply_catalog` — тест синхронизации `SellerProductPhoto` при create/update/повторной публикации с тем же набором фото (не должно пересоздавать без надобности — либо намеренно принять, что `replace_for_product` всегда делает DELETE+INSERT, это ок при малом числе фото на товар).
 - Пересобранные `templates/examples/*.xlsx` — прогнать через `test_catalog_template_artifact.py` (полный pipeline).
