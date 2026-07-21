@@ -186,3 +186,13 @@ def test_multiple_valid_photo_ids_have_no_error(session):
     result = make_validator(session).validate(workbook)
 
     assert result.is_valid
+
+
+def test_duplicate_photo_id_reports_error(session):
+    photo_id = insert_photo(session, s3_key="dup.jpg")
+    workbook = make_workbook([[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", f"{photo_id};{photo_id}"]])
+
+    result = make_validator(session).validate(workbook)
+
+    assert not result.is_valid
+    assert any(e.column == "Фото" for e in result.errors)

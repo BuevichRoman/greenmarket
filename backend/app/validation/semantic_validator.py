@@ -130,6 +130,16 @@ class SemanticValidator:
                     )
                 ]
 
+        if len(photo_ids) != len(set(photo_ids)):
+            return [
+                ValidationError(
+                    sheet=sheet_name,
+                    row=row_number,
+                    column="Фото",
+                    message=f"'{value}' содержит повторяющиеся идентификаторы фото",
+                )
+            ]
+
         if not self.photo_gateway.exists_all(photo_ids):
             return [
                 ValidationError(
