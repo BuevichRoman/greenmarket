@@ -11,13 +11,14 @@ CATALOG_HEADER = [
     "Остаток",
     "Описание",
     "Дополнительные характеристики",
+    "Фото",
 ]
 
 PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наименование"]
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
 
 SYSTEM_ROWS = [
-    ["TemplateVersion", "1.0"],
+    ["TemplateVersion", "2.0"],
     ["TemplateId", "template-1"],
 ]
 
@@ -26,7 +27,7 @@ def make_valid_workbook() -> RawWorkbook:
     return RawWorkbook(
         source="valid.xlsx",
         sheets=[
-            RawSheet(name="Каталог", index=0, rows=[CATALOG_HEADER, [1, "Яблоко", "Овощи", "Прочее", 100, "кг", 5, "", ""]]),
+            RawSheet(name="Каталог", index=0, rows=[CATALOG_HEADER, [1, "Яблоко", "Овощи", "Прочее", 100, "кг", 5, "", "", "1"]]),
             RawSheet(name="Товарные группы", index=1, rows=[PRODUCT_GROUPS_HEADER, [1, None, "Овощи"]]),
             RawSheet(name="Товарные позиции", index=2, rows=[PRODUCTS_HEADER, [1, 1, "Яблоко"]]),
             RawSheet(name="Инструкция", index=3, rows=[["любой текст, как угодно"]]),
@@ -106,7 +107,7 @@ def test_missing_system_field_reports_error():
 
 
 def test_unsupported_template_version_reports_error():
-    rows = [["TemplateVersion", "2.0"] if row[0] == "TemplateVersion" else row for row in SYSTEM_ROWS]
+    rows = [["TemplateVersion", "3.0"] if row[0] == "TemplateVersion" else row for row in SYSTEM_ROWS]
     workbook = replace_sheet(make_valid_workbook(), "_System", rows)
 
     result = StructureValidator().validate(workbook)
@@ -141,3 +142,13 @@ def test_narrow_system_sheet_does_not_crash():
     result = StructureValidator().validate(workbook)
 
     assert not result.is_valid
+
+
+def test_missing_photo_column_reports_error():
+    truncated = CATALOG_HEADER[:-1]  # без «Фото»
+    workbook = replace_sheet(make_valid_workbook(), "Каталог", [truncated])
+
+    result = StructureValidator().validate(workbook)
+
+    assert not result.is_valid
+    assert any("обязательная колонка 'Фото'" in e.message for e in result.errors)
