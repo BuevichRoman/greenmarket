@@ -1,11 +1,14 @@
 from pathlib import Path
 
 import openpyxl
+from sqlalchemy import text
 
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.mapping.mapper import Mapper
 from app.parsing.excel_parser import ExcelParser
+from app.parsing.raw_workbook import RawSheet, RawWorkbook
+from app.platform.photo_gateway import PhotoGateway
 from app.validation.business_validator import BusinessValidator
 from app.validation.semantic_validator import SemanticValidator
 from app.validation.structure_validator import CATALOG_COLUMNS, CATALOG_SHEET, SYSTEM_SHEET, StructureValidator
@@ -21,9 +24,31 @@ FULL_EXAMPLE_PATH = EXAMPLES_DIR / "catalog_template_v1_full.xlsx"
 def _make_validator(session) -> Validator:
     return Validator(
         StructureValidator(),
-        SemanticValidator(ProductGroupRepository(session), ProductRepository(session)),
+        SemanticValidator(ProductGroupRepository(session), ProductRepository(session), PhotoGateway(session)),
         BusinessValidator(),
     )
+
+
+_PHOTO_COLUMN_INDEX = len(CATALOG_COLUMNS) - 1
+
+
+def _with_real_photo_ids(workbook: RawWorkbook, session) -> RawWorkbook:
+    """Примеры шаблона (.xlsx) хранят символические id в колонке «Фото»,
+    которых нет в свежей БД теста/CI — подставляет реально вставленные Photo
+    перед прогоном через SemanticValidator, не трогая остальные листы."""
+    catalog = next(sheet for sheet in workbook.sheets if sheet.name == CATALOG_SHEET)
+    new_rows = [catalog.rows[0]]
+    for row_index, row in enumerate(catalog.rows[1:]):
+        photo_id = session.execute(
+            text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": f"artifact-{workbook.source}-{row_index}.jpg"}
+        ).lastrowid
+        new_row = list(row)
+        if len(new_row) > _PHOTO_COLUMN_INDEX:
+            new_row[_PHOTO_COLUMN_INDEX] = str(photo_id)
+        new_rows.append(new_row)
+    patched_catalog = RawSheet(name=catalog.name, index=catalog.index, rows=new_rows)
+    sheets = [patched_catalog if s.name == CATALOG_SHEET else s for s in workbook.sheets]
+    return RawWorkbook(source=workbook.source, sheets=sheets)
 
 
 def test_master_template_file_exists():
@@ -68,12 +93,13 @@ def test_master_template_retains_formatting_and_protection():
             assert dv.showErrorMessage is True
 
     assert catalog_sheet.freeze_panes == "A2"
-    assert str(catalog_sheet.auto_filter.ref) == "A1:I1000"
+    assert str(catalog_sheet.auto_filter.ref) == "A1:J1000"
     assert catalog_sheet.column_dimensions["B"].width >= len("Наименование продавца") * 0.9
 
 
 def test_partial_example_passes_full_pipeline(session):
     workbook = ExcelParser().parse(PARTIAL_EXAMPLE_PATH)
+    workbook = _with_real_photo_ids(workbook, session)
 
     result = _make_validator(session).validate(workbook)
     assert result.is_valid, result.errors
@@ -84,6 +110,7 @@ def test_partial_example_passes_full_pipeline(session):
 
 def test_full_example_passes_full_pipeline(session):
     workbook = ExcelParser().parse(FULL_EXAMPLE_PATH)
+    workbook = _with_real_photo_ids(workbook, session)
 
     result = _make_validator(session).validate(workbook)
     assert result.is_valid, result.errors

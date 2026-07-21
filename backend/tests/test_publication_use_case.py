@@ -15,10 +15,11 @@ CATALOG_HEADER = [
     "Остаток",
     "Описание",
     "Дополнительные характеристики",
+    "Фото",
 ]
 PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наименование"]
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
-SYSTEM_ROWS = [["TemplateVersion", "1.0"], ["TemplateId", "template-1"]]
+SYSTEM_ROWS = [["TemplateVersion", "2.0"], ["TemplateId", "template-1"]]
 
 
 def insert_seller(session, *, name: str) -> int:
@@ -28,6 +29,10 @@ def insert_seller(session, *, name: str) -> int:
 
 def insert_user(session, *, name: str) -> int:
     return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
+
+
+def insert_photo(session, *, s3_key: str) -> int:
+    return session.execute(text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": s3_key}).lastrowid
 
 
 def make_resource(catalog_rows: list[list[object]], system_rows: list[list[object]] | None = None) -> FakeSheetsResource:
@@ -46,7 +51,8 @@ def make_resource(catalog_rows: list[list[object]], system_rows: list[list[objec
 def test_publishes_valid_catalog(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма Use Case")
     user_id = insert_user(committing_session, name="Admin")
-    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]])
+    photo_id = insert_photo(committing_session, s3_key="uc-1.jpg")
+    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]])
     use_case = PublicationUseCase(committing_session, parser_resource=resource)
 
     result = use_case.publish("sheet-1", seller_id=seller_id, published_by=user_id)
@@ -59,8 +65,9 @@ def test_publishes_valid_catalog(committing_session):
 def test_validation_error_raises_with_error_list(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма невалидная")
     user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="uc-2.jpg")
     # Цена отрицательная — SemanticValidator должен отклонить
-    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]])
+    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", "", str(photo_id)]])
     use_case = PublicationUseCase(committing_session, parser_resource=resource)
 
     import pytest
@@ -73,7 +80,8 @@ def test_validation_error_raises_with_error_list(committing_session):
 def test_republishing_same_content_is_idempotent_no_op(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма повтор")
     user_id = insert_user(committing_session, name="Admin")
-    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]])
+    photo_id = insert_photo(committing_session, s3_key="uc-3.jpg")
+    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]])
     use_case = PublicationUseCase(committing_session, parser_resource=resource)
 
     first = use_case.publish("sheet-3", seller_id=seller_id, published_by=user_id)
@@ -86,7 +94,8 @@ def test_republishing_same_content_is_idempotent_no_op(committing_session):
 def test_no_mode_row_defaults_to_prod_result(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма без Mode")
     user_id = insert_user(committing_session, name="Admin")
-    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]])
+    photo_id = insert_photo(committing_session, s3_key="uc-4.jpg")
+    resource = make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]])
     use_case = PublicationUseCase(committing_session, parser_resource=resource)
 
     result = use_case.publish("sheet-mode-default", seller_id=seller_id, published_by=user_id)
@@ -101,8 +110,9 @@ def test_mode_test_writes_to_test_session_not_prod(committing_session, test_comm
     # ошибочно писал в прод (committing_session), FK на Seller там бы упал.
     seller_id = insert_seller(test_committing_session, name="Ферма TEST-режим")
     user_id = insert_user(test_committing_session, name="Admin")
+    photo_id = insert_photo(test_committing_session, s3_key="uc-5.jpg")
     resource = make_resource(
-        [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+        [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]],
         system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
     )
     use_case = PublicationUseCase(committing_session, test_committing_session, parser_resource=resource)

@@ -22,10 +22,11 @@ CATALOG_HEADER = [
     "Остаток",
     "Описание",
     "Дополнительные характеристики",
+    "Фото",
 ]
 PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наименование"]
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
-SYSTEM_ROWS = [["TemplateVersion", "1.0"], ["TemplateId", "template-1"]]
+SYSTEM_ROWS = [["TemplateVersion", "2.0"], ["TemplateId", "template-1"]]
 
 
 def insert_seller(session, *, name: str) -> int:
@@ -35,6 +36,12 @@ def insert_seller(session, *, name: str) -> int:
 
 def insert_user(session, *, name: str) -> int:
     return session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
+
+
+def insert_photo(session, *, s3_key: str) -> int:
+    from sqlalchemy import text
+
+    return session.execute(text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": s3_key}).lastrowid
 
 
 def make_resource(catalog_rows, system_rows=None, **overrides) -> FakeSheetsResource:
@@ -78,9 +85,10 @@ def test_successful_publication_returns_200(committing_session):
 
     seller_id = insert_seller(committing_session, name="Ферма API")
     user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="api-1.jpg")
     override_session(committing_session)
     override_seller_access(seller_id, user_id)
-    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]]))
+    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]]))
     client = TestClient(app)
 
     response = client.post(
@@ -101,12 +109,13 @@ def test_mode_test_publishes_to_test_session_and_reports_mode(committing_session
 
     seller_id = insert_seller(test_committing_session, name="Ферма API тест-режим")
     user_id = insert_user(test_committing_session, name="Admin")
+    photo_id = insert_photo(test_committing_session, s3_key="api-2.jpg")
     override_session(committing_session)
     override_test_session(test_committing_session)
     override_seller_access(seller_id, user_id)
     override_resource(
         make_resource(
-            [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]],
+            [[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]],
             system_rows=[*SYSTEM_ROWS, ["Mode", "TEST"]],
         )
     )
@@ -205,9 +214,10 @@ def test_validation_errors_return_422_with_details(committing_session):
 
     seller_id = insert_seller(committing_session, name="Ферма ошибка валидации")
     user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="api-3.jpg")
     override_session(committing_session)
     override_seller_access(seller_id, user_id)
-    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]]))
+    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", "", str(photo_id)]]))
     client = TestClient(app)
 
     response = client.post(
@@ -226,9 +236,10 @@ def test_validation_errors_include_sheet_row_column(committing_session):
 
     seller_id = insert_seller(committing_session, name="Ферма ошибка валидации 2")
     user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="api-4.jpg")
     override_session(committing_session)
     override_seller_access(seller_id, user_id)
-    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", ""]]))
+    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", -5, "кг", 5, "", "", str(photo_id)]]))
     client = TestClient(app)
 
     response = client.post(
@@ -348,9 +359,10 @@ def test_spreadsheet_id_is_extracted_from_sheet_url(committing_session):
 
     seller_id = insert_seller(committing_session, name="Ферма ссылка")
     user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="api-5.jpg")
     override_session(committing_session)
     override_seller_access(seller_id, user_id)
-    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", ""]]))
+    override_resource(make_resource([[None, "Ферма А", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)]]))
     client = TestClient(app)
 
     response = client.post(
