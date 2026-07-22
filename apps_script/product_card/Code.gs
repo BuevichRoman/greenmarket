@@ -164,3 +164,37 @@ function handleApiResponse(response, expectedStatus) {
   var message = (body.error && body.error.message) || ('Ошибка сервера (' + code + ')');
   throw new Error(message);
 }
+
+function uploadPhoto(base64Data, contentType, filename) {
+  var accessToken = getOrPromptAccessToken();
+  if (!accessToken) {
+    throw new Error('Не указан access_token — загрузка отменена.');
+  }
+
+  var bytes = Utilities.base64Decode(base64Data);
+  var blob = Utilities.newBlob(bytes, contentType, filename || 'photo');
+
+  var response = UrlFetchApp.fetch(API_BASE_URL + '/photos', {
+    method: 'post',
+    payload: {
+      access_token: accessToken,
+      file: blob,
+    },
+    muteHttpExceptions: true,
+  });
+
+  return handleApiResponse(response, 201).photo_id;
+}
+
+function getPhotoUrls(photoIds) {
+  if (!photoIds || photoIds.length === 0) return [];
+
+  var accessToken = getOrPromptAccessToken();
+  if (!accessToken) {
+    throw new Error('Не указан access_token — превью недоступно.');
+  }
+
+  var url = API_BASE_URL + '/photos?ids=' + photoIds.join(',') + '&access_token=' + encodeURIComponent(accessToken);
+  var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+  return handleApiResponse(response, 200).photos;
+}
