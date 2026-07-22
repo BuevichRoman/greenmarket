@@ -148,7 +148,14 @@ function getOrPromptAccessToken() {
 
 function handleApiResponse(response, expectedStatus) {
   var code = response.getResponseCode();
-  var body = JSON.parse(response.getContentText());
+  var body;
+  try {
+    body = JSON.parse(response.getContentText());
+  } catch (e) {
+    // Не-JSON ответ (например, HTML-страница ошибки от прокси перед backend) —
+    // сообщение читаемее, чем сырой SyntaxError.
+    throw new Error('Сервер вернул некорректный ответ (код ' + code + ')');
+  }
   if (code === expectedStatus) return body;
 
   if (code === 403) {
