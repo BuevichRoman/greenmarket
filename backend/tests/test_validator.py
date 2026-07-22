@@ -1,6 +1,9 @@
+from sqlalchemy import text
+
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.parsing.raw_workbook import RawSheet, RawWorkbook
+from app.platform.photo_gateway import PhotoGateway
 from app.validation.business_validator import BusinessValidator
 from app.validation.semantic_validator import SemanticValidator
 from app.validation.structure_validator import StructureValidator
@@ -16,11 +19,12 @@ CATALOG_HEADER = [
     "Остаток",
     "Описание",
     "Дополнительные характеристики",
+    "Фото",
 ]
 PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наименование"]
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
 SYSTEM_ROWS = [
-    ["TemplateVersion", "1.0"],
+    ["TemplateVersion", "2.0"],
     ["TemplateId", "template-1"],
 ]
 
@@ -33,9 +37,13 @@ class _RefusesToRun:
 def make_validator(session) -> Validator:
     return Validator(
         StructureValidator(),
-        SemanticValidator(ProductGroupRepository(session), ProductRepository(session)),
+        SemanticValidator(ProductGroupRepository(session), ProductRepository(session), PhotoGateway(session)),
         BusinessValidator(),
     )
+
+
+def insert_photo(session, *, s3_key: str) -> int:
+    return session.execute(text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": s3_key}).lastrowid
 
 
 def make_valid_workbook(catalog_row: list[object]) -> RawWorkbook:
@@ -52,7 +60,8 @@ def make_valid_workbook(catalog_row: list[object]) -> RawWorkbook:
 
 
 def test_valid_workbook_end_to_end_has_no_errors(session):
-    row = [1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", ""]
+    photo_id = insert_photo(session, s3_key="validator-1.jpg")
+    row = [1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", str(photo_id)]
     workbook = make_valid_workbook(row)
 
     result = make_validator(session).validate(workbook)
@@ -71,9 +80,10 @@ def test_structure_errors_stop_semantic_and_business_from_running(session):
 
 def test_combines_semantic_and_business_errors_when_structure_is_valid(session):
     # Наименование продавца пусто (semantic) + дубль SellerProductId (business)
+    photo_id = insert_photo(session, s3_key="validator-2.jpg")
     rows = [
-        [1, "", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", ""],
-        [1, "Апельсины оптом", "Цитрусовые", "Апельсин", 50, "кг", 5, "", ""],
+        [1, "", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", str(photo_id)],
+        [1, "Апельсины оптом", "Цитрусовые", "Апельсин", 50, "кг", 5, "", "", str(photo_id)],
     ]
     workbook = RawWorkbook(
         source="valid.xlsx",

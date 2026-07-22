@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
+from app.infrastructure.repositories.seller_product_photo_repository import SellerProductPhotoRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.mapping.publication_model import PublicationMetadata, PublicationModel, PublicationProduct
 from app.platform.seller_gateway import SellerGateway
@@ -45,10 +46,11 @@ def make_service(session) -> PublicationService:
         product_repository=ProductRepository(session),
         product_group_repository=ProductGroupRepository(session),
         catalog_publication_repository=CatalogPublicationRepository(session),
+        seller_product_photo_repository=SellerProductPhotoRepository(session),
     )
 
 
-def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None) -> PublicationProduct:
+def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None, photo_ids=None) -> PublicationProduct:
     return PublicationProduct(
         seller_product_id=seller_product_id,
         seller_name=seller_name,
@@ -59,6 +61,7 @@ def make_product(*, seller_product_id=None, seller_name="Ферма А", group="
         stock=stock,
         description=description,
         attributes=attributes,
+        photo_ids=photo_ids if photo_ids is not None else [],
     )
 
 
@@ -364,6 +367,7 @@ def test_integrity_error_race_on_publication_key_is_wrapped(committing_session):
         product_repository=ProductRepository(committing_session),
         product_group_repository=ProductGroupRepository(committing_session),
         catalog_publication_repository=BlindToRaceRepository(committing_session),
+        seller_product_photo_repository=SellerProductPhotoRepository(committing_session),
     )
     model = make_model(seller_id, [make_product(price=10)])
 
@@ -448,3 +452,65 @@ def test_publish_persists_counts_on_the_publication_record(committing_session):
     assert publication.created_count == result.created_count == 2
     assert publication.updated_count == result.updated_count == 0
     assert publication.deactivated_count == result.deactivated_count == 0
+
+
+def insert_photo(session, *, s3_key: str) -> int:
+    return session.execute(text("INSERT INTO Photo (s3_key) VALUES (:s3_key)"), {"s3_key": s3_key}).lastrowid
+
+
+def test_publish_links_photos_to_new_seller_product(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма с фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo_a = insert_photo(committing_session, s3_key="a.jpg")
+    photo_b = insert_photo(committing_session, s3_key="b.jpg")
+    service = make_service(committing_session)
+
+    model = make_model(seller_id, [make_product(price=10, photo_ids=[photo_a, photo_b])])
+    service.publish(model, published_by=user_id, publication_key="photo-key-1", catalog_hash="photo-hash-1")
+
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+    linked = SellerProductPhotoRepository(committing_session).list_photo_ids(seller_product_id)
+    assert linked == [photo_a, photo_b]
+
+
+def test_republishing_replaces_photo_set(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма смена фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo_a = insert_photo(committing_session, s3_key="c.jpg")
+    photo_b = insert_photo(committing_session, s3_key="d.jpg")
+    photo_c = insert_photo(committing_session, s3_key="e.jpg")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(price=10, photo_ids=[photo_a, photo_b])])
+    service.publish(first, published_by=user_id, publication_key="photo-key-a", catalog_hash="photo-hash-a")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(seller_id, [make_product(seller_product_id=seller_product_id, price=10, photo_ids=[photo_c])])
+    result = service.publish(second, published_by=user_id, publication_key="photo-key-b", catalog_hash="photo-hash-b")
+
+    linked = SellerProductPhotoRepository(committing_session).list_photo_ids(seller_product_id)
+    assert linked == [photo_c]
+    assert result.updated_count == 1
+
+
+def test_republishing_with_only_photos_changed_still_counts_as_updated(committing_session):
+    # Регрессия на то, что _has_changed сравнивает только цену/остаток/etc —
+    # публикация с той же ценой, но новым фото, обязана попасть в ветку
+    # обновления, иначе SellerProductPhoto не синхронизируется.
+    seller_id = insert_seller(committing_session, name="Ферма только фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo_a = insert_photo(committing_session, s3_key="f.jpg")
+    photo_b = insert_photo(committing_session, s3_key="g.jpg")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(price=10, unit="кг", stock=5, photo_ids=[photo_a])])
+    service.publish(first, published_by=user_id, publication_key="photo-key-c", catalog_hash="photo-hash-c")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id, [make_product(seller_product_id=seller_product_id, price=10, unit="кг", stock=5, photo_ids=[photo_b])]
+    )
+    result = service.publish(second, published_by=user_id, publication_key="photo-key-d", catalog_hash="photo-hash-d")
+
+    assert result.updated_count == 1
+    assert SellerProductPhotoRepository(committing_session).list_photo_ids(seller_product_id) == [photo_b]

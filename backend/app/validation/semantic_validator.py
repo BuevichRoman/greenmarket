@@ -1,6 +1,7 @@
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.parsing.raw_workbook import RawWorkbook
+from app.platform.photo_gateway import PhotoGateway
 from app.validation.errors import ValidationError, ValidationResult
 from app.validation.structure_validator import CATALOG_SHEET
 
@@ -10,6 +11,7 @@ _COL_PRODUCT = 3
 _COL_PRICE = 4
 _COL_UNIT = 5
 _COL_STOCK = 6
+_COL_PHOTOS = 9
 
 _OTHER_PRODUCT_PLACEHOLDER = "Прочее"
 
@@ -25,13 +27,20 @@ def _row_is_empty(row: list[object]) -> bool:
 class SemanticValidator:
     """Проверяет значения строк листа «Каталог»: обязательные поля не пусты,
     цена/остаток — неотрицательные числа, товарная группа/позиция существуют
-    в справочниках. Не проверяет структуру (StructureValidator) и не
-    проверяет бизнес-правила вроде дублей SellerProductId (BusinessValidator).
+    в справочниках, идентификаторы фото («Фото») — целые числа, существующие
+    в Photo. Не проверяет структуру (StructureValidator) и не проверяет
+    бизнес-правила вроде дублей SellerProductId (BusinessValidator).
     """
 
-    def __init__(self, product_group_repository: ProductGroupRepository, product_repository: ProductRepository):
+    def __init__(
+        self,
+        product_group_repository: ProductGroupRepository,
+        product_repository: ProductRepository,
+        photo_gateway: PhotoGateway,
+    ):
         self.product_group_repository = product_group_repository
         self.product_repository = product_repository
+        self.photo_gateway = photo_gateway
 
     def validate(self, workbook: RawWorkbook) -> ValidationResult:
         catalog = next((sheet for sheet in workbook.sheets if sheet.name == CATALOG_SHEET), None)
@@ -95,7 +104,52 @@ class SemanticValidator:
 
         errors += self._validate_non_negative_number(sheet_name, row_number, "Остаток", _cell(row, _COL_STOCK))
 
+        errors += self._validate_photos(sheet_name, row_number, _cell(row, _COL_PHOTOS))
+
         return errors
+
+    def _validate_photos(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
+        if not value:
+            return [self._required_field_empty(sheet_name, row_number, "Фото")]
+
+        parts = [part.strip() for part in str(value).split(";") if part.strip()]
+        if not parts:
+            return [self._required_field_empty(sheet_name, row_number, "Фото")]
+
+        photo_ids: list[int] = []
+        for part in parts:
+            try:
+                photo_ids.append(int(part))
+            except ValueError:
+                return [
+                    ValidationError(
+                        sheet=sheet_name,
+                        row=row_number,
+                        column="Фото",
+                        message=f"'{value}' содержит нечисловой идентификатор фото",
+                    )
+                ]
+
+        if len(photo_ids) != len(set(photo_ids)):
+            return [
+                ValidationError(
+                    sheet=sheet_name,
+                    row=row_number,
+                    column="Фото",
+                    message=f"'{value}' содержит повторяющиеся идентификаторы фото",
+                )
+            ]
+
+        if not self.photo_gateway.exists_all(photo_ids):
+            return [
+                ValidationError(
+                    sheet=sheet_name,
+                    row=row_number,
+                    column="Фото",
+                    message=f"Один или несколько идентификаторов фото не существуют: {value}",
+                )
+            ]
+        return []
 
     def _validate_non_negative_number(self, sheet_name: str, row_number: int, column: str, value: object) -> list[ValidationError]:
         if value is None or value == "":

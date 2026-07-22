@@ -1,10 +1,21 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.platform.photo_gateway import PhotoGateway
+from app.platform.photo_storage import build_photo_url
 from app.platform.seller_gateway import SellerGateway
+
+
+def _photo_urls(s3_keys: list[str]) -> list[str]:
+    return [
+        build_photo_url(
+            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        )
+        for key in s3_keys
+    ]
 
 
 class CatalogUseCase:
@@ -101,7 +112,7 @@ class CatalogUseCase:
                     "name": product.name,
                     "min_price": cheapest.price,
                     "offer_count": len(offers),
-                    "photos": photos_by_seller_product.get(cheapest.id, []),
+                    "photos": _photo_urls(photos_by_seller_product.get(cheapest.id, [])),
                 }
             )
         return items, total
@@ -133,7 +144,7 @@ class CatalogUseCase:
                     "unit": offer.unit,
                     "stock": offer.stock,
                     "description": offer.description,
-                    "photos": photos_by_seller_product.get(offer.id, []),
+                    "photos": _photo_urls(photos_by_seller_product.get(offer.id, [])),
                 }
                 for offer in offers_sorted
             ],

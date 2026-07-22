@@ -132,7 +132,7 @@ def test_build_workbook_is_deterministic():
 
 
 def test_build_workbook_accepts_prefilled_catalog_rows():
-    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", ""]
+    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "1"]
     wb = build_workbook(catalog_rows=[row])
     assert _sheet_values(wb[CATALOG_SHEET])[1] == row
 
@@ -146,7 +146,7 @@ def test_catalog_sheet_has_autofilter_over_full_data_range():
     wb = build_workbook()
     ws = wb[CATALOG_SHEET]
     last_row = max(ws.max_row, 1000)
-    assert str(ws.auto_filter.ref) == f"A1:I{last_row}"
+    assert str(ws.auto_filter.ref) == f"A1:J{last_row}"
 
 
 def test_catalog_columns_have_content_fitting_width():

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 12px; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%; padding: 6px; box-sizing: border-box; margin-top: 4px;
+    }
+    .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .photo-thumb { position: relative; width: 80px; height: 80px; }
+    .photo-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
+    .photo-thumb button {
+      position: absolute; top: -6px; right: -6px; background: #d33; color: #fff;
+      border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer;
+    }
+    .actions { margin-top: 16px; display: flex; gap: 8px; }
+    button.primary { background: #2a7a2a; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    button.secondary { background: #eee; border: 1px solid #ccc; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    #status { margin-top: 10px; color: #888; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="form">
+    <label>Наименование продавца</label>
+    <input type="text" id="sellerName">
+
+    <label>Товарная группа GreenMarket</label>
+    <select id="productGroup"></select>
+
+    <label>Товарная позиция GreenMarket</label>
+    <select id="productName"></select>
+
+    <label>Цена</label>
+    <input type="number" id="price" step="0.01">
+
+    <label>Единица продажи</label>
+    <input type="text" id="unit">
+
+    <label>Остаток</label>
+    <input type="number" id="stock" step="0.001">
+
+    <label>Описание</label>
+    <textarea id="description" rows="2"></textarea>
+
+    <label>Дополнительные характеристики</label>
+    <textarea id="attributes" rows="2"></textarea>
+
+    <label>Фото</label>
+    <div class="photos" id="photos"></div>
+    <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="margin-top: 8px;">
+
+    <div class="actions">
+      <button class="primary" id="saveButton" onclick="saveRow()">Сохранить</button>
+      <button class="secondary" onclick="google.script.host.close()">Отмена</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    var photoIds = [];
+    var photoPreviews = {};
+    var isUploading = false;
+    var currentRowIndex = null;
+
+    function setStatus(text) {
+      document.getElementById('status').textContent = text || '';
+    }
+
+    function renderPhotos() {
+      var container = document.getElementById('photos');
+      container.innerHTML = '';
+      photoIds.forEach(function (id) {
+        var wrap = document.createElement('div');
+        wrap.className = 'photo-thumb';
+        var img = document.createElement('img');
+        img.src = photoPreviews[id] || '';
+        var btn = document.createElement('button');
+        btn.textContent = '×';
+        btn.onclick = function () { removePhoto(id); };
+        wrap.appendChild(img);
+        wrap.appendChild(btn);
+        container.appendChild(wrap);
+      });
+    }
+
+    function removePhoto(id) {
+      photoIds = photoIds.filter(function (x) { return x !== id; });
+      delete photoPreviews[id];
+      renderPhotos();
+    }
+
+    function populateSelectWithFallback(selectElement, options, currentValue) {
+      var values = options.slice();
+      if (currentValue && values.indexOf(currentValue) === -1) {
+        values.unshift(currentValue);
+      }
+      values.forEach(function (value) {
+        var opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        selectElement.appendChild(opt);
+      });
+      selectElement.value = currentValue || '';
+    }
+
+    function fillForm(data) {
+      currentRowIndex = data.rowIndex;
+      var f = data.fields;
+      document.getElementById('sellerName').value = f['Наименование продавца'] || '';
+      document.getElementById('price').value = f['Цена'] || '';
+      document.getElementById('unit').value = f['Единица продажи'] || '';
+      document.getElementById('stock').value = f['Остаток'] || '';
+      document.getElementById('description').value = f['Описание'] || '';
+      document.getElementById('attributes').value = f['Дополнительные характеристики'] || '';
+
+      populateSelectWithFallback(document.getElementById('productGroup'), data.groups, f['Товарная группа GreenMarket']);
+      populateSelectWithFallback(document.getElementById('productName'), data.products, f['Товарная позиция GreenMarket']);
+
+      photoIds = data.photoIds.slice();
+      if (photoIds.length > 0) {
+        setStatus('Загрузка превью фото…');
+        google.script.run
+          .withSuccessHandler(function (photos) {
+            photos.forEach(function (p) { photoPreviews[p.photo_id] = p.url; });
+            renderPhotos();
+            setStatus('');
+          })
+          .withFailureHandler(function (err) {
+            setStatus('');
+            alert('Не удалось загрузить превью фото: ' + err.message);
+            renderPhotos();
+          })
+          .getPhotoUrls(photoIds);
+      }
+    }
+
+    document.getElementById('photoInput').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var base64 = reader.result.split(',')[1];
+        var localPreviewUrl = URL.createObjectURL(file);
+        setStatus('Загрузка фото…');
+        isUploading = true;
+        document.getElementById('saveButton').disabled = true;
+        document.getElementById('photoInput').disabled = true; // не даём выбрать второе фото, пока первое ещё грузится
+        google.script.run
+          .withSuccessHandler(function (photoId) {
+            photoIds.push(photoId);
+            photoPreviews[photoId] = localPreviewUrl;
+            renderPhotos();
+            setStatus('');
+            document.getElementById('photoInput').value = '';
+            isUploading = false;
+            document.getElementById('saveButton').disabled = false;
+            document.getElementById('photoInput').disabled = false;
+          })
+          .withFailureHandler(function (err) {
+            setStatus('');
+            alert('Ошибка загрузки фото: ' + err.message);
+            document.getElementById('photoInput').value = '';
+            isUploading = false;
+            document.getElementById('saveButton').disabled = false;
+            document.getElementById('photoInput').disabled = false;
+          })
+          .uploadPhoto(base64, file.type, file.name);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function saveRow() {
+      if (isUploading) {
+        alert('Дождитесь окончания загрузки фото перед сохранением.');
+        return;
+      }
+      var formData = {
+        sellerName: document.getElementById('sellerName').value,
+        productGroup: document.getElementById('productGroup').value,
+        productName: document.getElementById('productName').value,
+        price: document.getElementById('price').value,
+        unit: document.getElementById('unit').value,
+        stock: document.getElementById('stock').value,
+        description: document.getElementById('description').value,
+        attributes: document.getElementById('attributes').value,
+        photoIds: photoIds,
+      };
+      setStatus('Сохранение…');
+      google.script.run
+        .withSuccessHandler(function () {
+          google.script.host.close();
+        })
+        .withFailureHandler(function (err) {
+          setStatus('');
+          alert('Ошибка сохранения: ' + err.message);
+        })
+        .saveRow(currentRowIndex, formData);
+    }
+
+    setStatus('Загрузка данных…');
+    google.script.run
+      .withSuccessHandler(function (data) {
+        fillForm(data);
+        setStatus('');
+      })
+      .withFailureHandler(function (err) {
+        setStatus('');
+        alert('Ошибка загрузки карточки: ' + err.message);
+      })
+      .getCardData();
+  </script>
+</body>
+</html>

@@ -18,7 +18,7 @@ SYSTEM_SHEET = "_System"
 
 REQUIRED_SHEETS = [CATALOG_SHEET, PRODUCT_GROUPS_SHEET, PRODUCTS_SHEET, INSTRUCTION_SHEET, SYSTEM_SHEET]
 
-# Excel Template v1.0 — согласовано с коллегой (kwork/timeline.md, п.38).
+# Excel Template v2.0 — согласовано с коллегой (kwork/timeline.md, п.38).
 # Порядок и точные заголовки колонок фиксированы; изменение — это смена
 # DocumentVersion/TemplateVersion, а не правка Parser/Validator.
 CATALOG_COLUMNS = [
@@ -31,6 +31,7 @@ CATALOG_COLUMNS = [
     _Column("Остаток", required=True),
     _Column("Описание", required=False),
     _Column("Дополнительные характеристики", required=False),
+    _Column("Фото", required=True),
 ]
 
 PRODUCT_GROUPS_COLUMNS = [
@@ -46,7 +47,7 @@ PRODUCTS_COLUMNS = [
 ]
 
 SYSTEM_FIELDS = ["TemplateVersion", "TemplateId"]
-SUPPORTED_TEMPLATE_VERSIONS = {"1.0"}
+SUPPORTED_TEMPLATE_VERSIONS = {"2.0"}
 
 
 class StructureValidator:
