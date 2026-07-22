@@ -145,6 +145,7 @@
         setStatus('Загрузка фото…');
         isUploading = true;
         document.getElementById('saveButton').disabled = true;
+        document.getElementById('photoInput').disabled = true; // не даём выбрать второе фото, пока первое ещё грузится
         google.script.run
           .withSuccessHandler(function (photoId) {
             photoIds.push(photoId);
@@ -154,6 +155,7 @@
             document.getElementById('photoInput').value = '';
             isUploading = false;
             document.getElementById('saveButton').disabled = false;
+            document.getElementById('photoInput').disabled = false;
           })
           .withFailureHandler(function (err) {
             setStatus('');
@@ -161,6 +163,7 @@
             document.getElementById('photoInput').value = '';
             isUploading = false;
             document.getElementById('saveButton').disabled = false;
+            document.getElementById('photoInput').disabled = false;
           })
           .uploadPhoto(base64, file.type, file.name);
       };
