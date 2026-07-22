@@ -125,3 +125,35 @@ function saveRow(formData) {
 
   sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
 }
+
+function getOrPromptAccessToken() {
+  var props = PropertiesService.getDocumentProperties();
+  var token = props.getProperty(ACCESS_TOKEN_PROPERTY);
+  if (token) return token;
+
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt(
+    'Токен доступа',
+    'Введите access_token продавца (тот же, что для публикации каталога в личном кабинете):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return null;
+
+  token = result.getResponseText().trim();
+  if (!token) return null;
+
+  props.setProperty(ACCESS_TOKEN_PROPERTY, token);
+  return token;
+}
+
+function handleApiResponse(response, expectedStatus) {
+  var code = response.getResponseCode();
+  var body = JSON.parse(response.getContentText());
+  if (code === expectedStatus) return body;
+
+  if (code === 403) {
+    PropertiesService.getDocumentProperties().deleteProperty(ACCESS_TOKEN_PROPERTY);
+  }
+  var message = (body.error && body.error.message) || ('Ошибка сервера (' + code + ')');
+  throw new Error(message);
+}
