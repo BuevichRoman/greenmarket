@@ -115,9 +115,9 @@ function saveRow(formData) {
     formData.sellerName,
     formData.productGroup,
     formData.productName,
-    formData.price,
+    Number(formData.price), // Card.html передаёт value HTML input — это всегда строка, даже для type="number".
     formData.unit,
-    formData.stock,
+    Number(formData.stock), // Аналогично — приводим к числу перед записью в ячейку.
     formData.description,
     formData.attributes,
     formData.photoIds.join(';'),
