@@ -31,3 +31,7 @@ class PhotoStorage:
         s3_key = f"seller-products/{uuid.uuid4()}.{extension}"
         self.client.put_object(Bucket=self.bucket, Key=s3_key, Body=file_bytes, ContentType=content_type)
         return s3_key
+
+
+def build_photo_url(s3_key: str, *, bucket: str, region: str) -> str:
+    return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"

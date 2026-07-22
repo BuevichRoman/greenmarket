@@ -1,6 +1,6 @@
 import pytest
 
-from app.platform.photo_storage import PhotoStorage, UnsupportedContentTypeError
+from app.platform.photo_storage import PhotoStorage, UnsupportedContentTypeError, build_photo_url
 
 
 class FakeS3Client:
@@ -55,3 +55,9 @@ def test_region_is_passed_to_boto3_client_when_no_client_injected(monkeypatch):
     PhotoStorage(bucket="test-bucket", region="eu-north-1")
 
     assert calls == [("s3", {"region_name": "eu-north-1"})]
+
+
+def test_build_photo_url_returns_standard_s3_pattern():
+    url = build_photo_url("seller-products/abc.jpg", bucket="greenmarket-photos", region="eu-north-1")
+
+    assert url == "https://greenmarket-photos.s3.eu-north-1.amazonaws.com/seller-products/abc.jpg"
