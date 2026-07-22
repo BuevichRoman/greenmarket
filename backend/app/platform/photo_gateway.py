@@ -46,3 +46,12 @@ class PhotoGateway:
         )
         count = self.session.execute(stmt, {"photo_ids": photo_ids}).scalar_one()
         return count == len(set(photo_ids))
+
+    def list_by_ids_and_seller(self, photo_ids: list[int], seller_id: int) -> list[tuple[int, str]]:
+        if not photo_ids:
+            return []
+        stmt = text(
+            "SELECT id, s3_key FROM Photo WHERE id IN :photo_ids AND seller_id = :seller_id"
+        ).bindparams(bindparam("photo_ids", expanding=True))
+        rows = self.session.execute(stmt, {"photo_ids": photo_ids, "seller_id": seller_id}).all()
+        return [(row[0], row[1]) for row in rows]
