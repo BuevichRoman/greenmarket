@@ -5,6 +5,8 @@ kwork/
 *.zip
 *.html
 !apps_script/**/*.html
+!buyer-web/index.html
+!seller-cabinet/index.html
 CLAUDE.md
 DIAGONST/
 platform_core/
