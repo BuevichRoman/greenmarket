@@ -1,0 +1,22 @@
+name: Deploy to prod
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "database/migrations/**"
+      - ".github/workflows/deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and run deploy script on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: bash /opt/greenmarket/deploy.sh
