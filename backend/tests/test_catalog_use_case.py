@@ -205,7 +205,11 @@ def test_list_products_breaks_price_ties_deterministically_for_cheapest_offer(se
 
     item = next(i for i in items if i["id"] == product_id)
     assert item["min_price"] == 30
-    assert item["photos"] == [build_photo_url("lower.jpg", bucket=settings.s3_bucket, region=settings.s3_region)]
+    assert item["photos"] == [
+        build_photo_url(
+            "lower.jpg", bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        )
+    ]
 
 
 def insert_seller_product_photo(session, *, seller_product_id: int, s3_key: str) -> int:
@@ -226,5 +230,7 @@ def test_get_product_returns_photo_urls_for_offer(session):
 
     result = CatalogUseCase(session).get_product(product_id)
 
-    expected_url = build_photo_url("offer.jpg", bucket=settings.s3_bucket, region=settings.s3_region)
+    expected_url = build_photo_url(
+        "offer.jpg", bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+    )
     assert result["offers"][0]["photos"] == [expected_url]

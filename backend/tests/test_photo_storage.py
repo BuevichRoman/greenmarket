@@ -61,3 +61,28 @@ def test_build_photo_url_returns_standard_s3_pattern():
     url = build_photo_url("seller-products/abc.jpg", bucket="greenmarket-photos", region="eu-north-1")
 
     assert url == "https://greenmarket-photos.s3.eu-north-1.amazonaws.com/seller-products/abc.jpg"
+
+
+def test_build_photo_url_uses_public_base_url_when_given():
+    url = build_photo_url(
+        "greenmarket/seller-products/abc.jpg",
+        bucket="greenmarket-photos",
+        region="eu-north-1",
+        public_base_url="https://pub-example.r2.dev",
+    )
+
+    assert url == "https://pub-example.r2.dev/greenmarket/seller-products/abc.jpg"
+
+
+def test_endpoint_url_is_passed_to_boto3_client_when_given(monkeypatch):
+    calls = []
+
+    def fake_boto3_client(service_name, **kwargs):
+        calls.append((service_name, kwargs))
+        return FakeS3Client()
+
+    monkeypatch.setattr("app.platform.photo_storage.boto3.client", fake_boto3_client)
+
+    PhotoStorage(bucket="test-bucket", region="auto", endpoint_url="https://account.r2.cloudflarestorage.com")
+
+    assert calls == [("s3", {"region_name": "auto", "endpoint_url": "https://account.r2.cloudflarestorage.com"})]

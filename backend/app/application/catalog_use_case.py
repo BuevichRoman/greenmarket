@@ -10,7 +10,12 @@ from app.platform.seller_gateway import SellerGateway
 
 
 def _photo_urls(s3_keys: list[str]) -> list[str]:
-    return [build_photo_url(key, bucket=settings.s3_bucket, region=settings.s3_region) for key in s3_keys]
+    return [
+        build_photo_url(
+            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        )
+        for key in s3_keys
+    ]
 
 
 class CatalogUseCase:

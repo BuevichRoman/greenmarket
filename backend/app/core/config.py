@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     seller_access_tokens: str = "{}"
     s3_bucket: str = ""
     s3_region: str = "us-east-1"
+    s3_endpoint_url: str = ""
+    s3_public_base_url: str = ""
     test_db_name: str = ""
 
 
