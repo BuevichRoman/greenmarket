@@ -101,5 +101,6 @@ function parsePhotoIds(cellValue) {
     .split(';')
     .map(function (part) { return part.trim(); })
     .filter(function (part) { return part !== ''; })
-    .map(function (part) { return Number(part); });
+    .map(function (part) { return Number(part); })
+    .filter(function (id) { return !isNaN(id); });
 }
