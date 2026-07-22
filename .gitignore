@@ -4,6 +4,7 @@
 kwork/
 *.zip
 *.html
+!apps_script/**/*.html
 CLAUDE.md
 DIAGONST/
 platform_core/
