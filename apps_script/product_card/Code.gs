@@ -53,3 +53,53 @@ function showCard(rowIndex) {
   var html = HtmlService.createHtmlOutputFromFile('Card').setWidth(520).setHeight(640);
   SpreadsheetApp.getUi().showModalDialog(html, 'Карточка товара');
 }
+
+function getCardData() {
+  var rowIndex = Number(PropertiesService.getDocumentProperties().getProperty(CURRENT_ROW_PROPERTY));
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CATALOG_SHEET_NAME);
+  var lastRow = sheet.getLastRow();
+  var isNewRow = rowIndex > lastRow;
+
+  var rawRow = isNewRow
+    ? COLUMN_ORDER.map(function () { return ''; })
+    : sheet.getRange(rowIndex, 1, 1, COLUMN_ORDER.length).getValues()[0];
+
+  var fields = {};
+  COLUMN_ORDER.forEach(function (name, i) { fields[name] = rawRow[i]; });
+
+  var referenceLists = getReferenceLists();
+
+  return {
+    rowIndex: rowIndex,
+    isNewRow: isNewRow,
+    fields: fields,
+    photoIds: parsePhotoIds(fields['Фото']),
+    groups: referenceLists.groups,
+    products: referenceLists.products,
+  };
+}
+
+function getReferenceLists() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var groups = readColumnValues(ss.getSheetByName(GROUPS_SHEET_NAME), 3);
+  var products = readColumnValues(ss.getSheetByName(PRODUCTS_SHEET_NAME), 3);
+  products.push(OTHER_PRODUCT_PLACEHOLDER);
+  return { groups: groups, products: products };
+}
+
+function readColumnValues(sheet, columnIndex) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, columnIndex, lastRow - 1, 1).getValues()
+    .map(function (row) { return row[0]; })
+    .filter(function (value) { return value !== '' && value !== null; });
+}
+
+function parsePhotoIds(cellValue) {
+  if (!cellValue) return [];
+  return String(cellValue)
+    .split(';')
+    .map(function (part) { return part.trim(); })
+    .filter(function (part) { return part !== ''; })
+    .map(function (part) { return Number(part); });
+}
