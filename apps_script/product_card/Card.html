@@ -52,7 +52,7 @@
     <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="margin-top: 8px;">
 
     <div class="actions">
-      <button class="primary" onclick="saveRow()">Сохранить</button>
+      <button class="primary" id="saveButton" onclick="saveRow()">Сохранить</button>
       <button class="secondary" onclick="google.script.host.close()">Отмена</button>
     </div>
     <div id="status"></div>
@@ -61,6 +61,7 @@
   <script>
     var photoIds = [];
     var photoPreviews = {};
+    var isUploading = false;
 
     function setStatus(text) {
       document.getElementById('status').textContent = text || '';
@@ -89,6 +90,20 @@
       renderPhotos();
     }
 
+    function populateSelectWithFallback(selectElement, options, currentValue) {
+      var values = options.slice();
+      if (currentValue && values.indexOf(currentValue) === -1) {
+        values.unshift(currentValue);
+      }
+      values.forEach(function (value) {
+        var opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        selectElement.appendChild(opt);
+      });
+      selectElement.value = currentValue || '';
+    }
+
     function fillForm(data) {
       var f = data.fields;
       document.getElementById('sellerName').value = f['Наименование продавца'] || '';
@@ -98,23 +113,8 @@
       document.getElementById('description').value = f['Описание'] || '';
       document.getElementById('attributes').value = f['Дополнительные характеристики'] || '';
 
-      var groupSelect = document.getElementById('productGroup');
-      data.groups.forEach(function (g) {
-        var opt = document.createElement('option');
-        opt.value = g;
-        opt.textContent = g;
-        groupSelect.appendChild(opt);
-      });
-      groupSelect.value = f['Товарная группа GreenMarket'] || '';
-
-      var productSelect = document.getElementById('productName');
-      data.products.forEach(function (p) {
-        var opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
-        productSelect.appendChild(opt);
-      });
-      productSelect.value = f['Товарная позиция GreenMarket'] || '';
+      populateSelectWithFallback(document.getElementById('productGroup'), data.groups, f['Товарная группа GreenMarket']);
+      populateSelectWithFallback(document.getElementById('productName'), data.products, f['Товарная позиция GreenMarket']);
 
       photoIds = data.photoIds.slice();
       if (photoIds.length > 0) {
@@ -143,6 +143,8 @@
         var base64 = reader.result.split(',')[1];
         var localPreviewUrl = URL.createObjectURL(file);
         setStatus('Загрузка фото…');
+        isUploading = true;
+        document.getElementById('saveButton').disabled = true;
         google.script.run
           .withSuccessHandler(function (photoId) {
             photoIds.push(photoId);
@@ -150,11 +152,15 @@
             renderPhotos();
             setStatus('');
             document.getElementById('photoInput').value = '';
+            isUploading = false;
+            document.getElementById('saveButton').disabled = false;
           })
           .withFailureHandler(function (err) {
             setStatus('');
             alert('Ошибка загрузки фото: ' + err.message);
             document.getElementById('photoInput').value = '';
+            isUploading = false;
+            document.getElementById('saveButton').disabled = false;
           })
           .uploadPhoto(base64, file.type, file.name);
       };
@@ -162,6 +168,10 @@
     });
 
     function saveRow() {
+      if (isUploading) {
+        alert('Дождитесь окончания загрузки фото перед сохранением.');
+        return;
+      }
       var formData = {
         sellerName: document.getElementById('sellerName').value,
         productGroup: document.getElementById('productGroup').value,
