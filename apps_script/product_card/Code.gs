@@ -104,3 +104,24 @@ function parsePhotoIds(cellValue) {
     .map(function (part) { return Number(part); })
     .filter(function (id) { return !isNaN(id); });
 }
+
+function saveRow(formData) {
+  var rowIndex = Number(PropertiesService.getDocumentProperties().getProperty(CURRENT_ROW_PROPERTY));
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CATALOG_SHEET_NAME);
+  var existingSellerProductId = rowIndex <= sheet.getLastRow() ? sheet.getRange(rowIndex, 1).getValue() : '';
+
+  var values = [
+    existingSellerProductId, // Карточка никогда не пишет SellerProductId сама — служебное поле сервера.
+    formData.sellerName,
+    formData.productGroup,
+    formData.productName,
+    formData.price,
+    formData.unit,
+    formData.stock,
+    formData.description,
+    formData.attributes,
+    formData.photoIds.join(';'),
+  ];
+
+  sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
+}
