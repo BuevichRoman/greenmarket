@@ -105,8 +105,7 @@ function parsePhotoIds(cellValue) {
     .filter(function (id) { return !isNaN(id); });
 }
 
-function saveRow(formData) {
-  var rowIndex = Number(PropertiesService.getDocumentProperties().getProperty(CURRENT_ROW_PROPERTY));
+function saveRow(rowIndex, formData) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CATALOG_SHEET_NAME);
   var existingSellerProductId = rowIndex <= sheet.getLastRow() ? sheet.getRange(rowIndex, 1).getValue() : '';
 
