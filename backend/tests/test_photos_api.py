@@ -175,3 +175,95 @@ def test_upload_photo_storage_failure_returns_500(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "PHOTO_STORAGE_ERROR"
+
+
+def test_list_photos_returns_urls_for_own_photos(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=5, published_by=1)
+    override_storage()
+    client = TestClient(app)
+
+    upload_response = client.post(
+        "/api/v1/photos",
+        data={"access_token": VALID_TOKEN},
+        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+    )
+    photo_id = upload_response.json()["photo_id"]
+
+    response = client.get(f"/api/v1/photos?ids={photo_id}&access_token={VALID_TOKEN}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    photos = response.json()["photos"]
+    assert len(photos) == 1
+    assert photos[0]["photo_id"] == photo_id
+    assert photos[0]["url"].endswith(".jpg")
+
+
+def test_list_photos_omits_other_sellers_photos(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_storage()
+
+    seller_a = SellerAccess(seller_id=5, published_by=1, name="Продавец А")
+    seller_b = SellerAccess(seller_id=6, published_by=1, name="Продавец Б")
+    tokens = {"token-a": seller_a, "token-b": seller_b}
+    app.dependency_overrides[get_seller_access_resolver] = lambda: (lambda token: tokens.get(token))
+    client = TestClient(app)
+
+    other_photo = client.post(
+        "/api/v1/photos",
+        data={"access_token": "token-b"},
+        files={"file": ("b.jpg", io.BytesIO(b"b"), "image/jpeg")},
+    ).json()["photo_id"]
+
+    response = client.get(f"/api/v1/photos?ids={other_photo}&access_token=token-a")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["photos"] == []
+
+
+def test_list_photos_with_invalid_token_returns_403(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    app.dependency_overrides[get_seller_access_resolver] = lambda: (lambda token: None)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/photos?ids=1&access_token=not-a-real-token")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
+
+
+def test_list_photos_with_non_numeric_ids_returns_422(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=5, published_by=1)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/photos?ids=abc&access_token={VALID_TOKEN}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_IDS"
+
+
+def test_list_photos_with_empty_ids_returns_empty_list(committing_session):
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=5, published_by=1)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/photos?ids=&access_token={VALID_TOKEN}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["photos"] == []

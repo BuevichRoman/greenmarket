@@ -3,12 +3,12 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.v1.photos_schemas import PhotoUploadResponse
+from app.api.v1.photos_schemas import PhotoInfo, PhotoListResponse, PhotoUploadResponse
 from app.api.v1.schemas import error_response
 from app.core.config import settings
 from app.infrastructure.database import get_session
 from app.platform.photo_gateway import PhotoGateway
-from app.platform.photo_storage import PhotoStorage
+from app.platform.photo_storage import PhotoStorage, build_photo_url
 from app.publication.seller_access import resolve_seller_access
 
 logger = logging.getLogger(__name__)
@@ -64,3 +64,27 @@ def upload_photo(
 
     logger.info("Фото загружено: seller_id=%s photo_id=%s", access.seller_id, photo_id)
     return PhotoUploadResponse(photo_id=photo_id)
+
+
+@router.get("", response_model=PhotoListResponse)
+def list_photos(
+    ids: str,
+    access_token: str,
+    session: Session = Depends(get_session),
+    resolve_access=Depends(get_seller_access_resolver),
+):
+    access = resolve_access(access_token)
+    if access is None:
+        return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
+
+    try:
+        photo_ids = [int(part.strip()) for part in ids.split(",") if part.strip()]
+    except ValueError:
+        return error_response(422, "INVALID_IDS", f"'{ids}' содержит нечисловой идентификатор фото")
+
+    rows = PhotoGateway(session).list_by_ids_and_seller(photo_ids, access.seller_id)
+    photos = [
+        PhotoInfo(photo_id=photo_id, url=build_photo_url(s3_key, bucket=settings.s3_bucket, region=settings.s3_region))
+        for photo_id, s3_key in rows
+    ]
+    return PhotoListResponse(photos=photos)
