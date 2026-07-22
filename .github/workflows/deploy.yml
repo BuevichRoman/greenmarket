@@ -7,6 +7,9 @@ on:
     paths:
       - "backend/**"
       - "database/migrations/**"
+      - "buyer-web/**"
+      - "seller-cabinet/**"
+      - "ci/**"
       - ".github/workflows/deploy.yml"
 
 jobs:
