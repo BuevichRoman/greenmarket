@@ -109,3 +109,63 @@ def test_get_status_returns_false_for_inactive_seller(session):
     status = SellerGateway(session).get_status(seller_id)
 
     assert status.is_active is False
+
+
+from datetime import datetime, timedelta, timezone
+
+
+def test_set_activation_code_and_find_by_activation_code(session):
+    seller_id = insert_seller(session, name="Продавец для кода активации", publication_key=None, catalog_hash=None)
+    # microsecond=0: колонка activation_code_expires_at — DATETIME без долей секунды (миграция 011),
+    # MySQL обрежет микросекунды при сохранении, так что сравнивать нужно без них
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0) + timedelta(days=7)
+    gateway = SellerGateway(session)
+
+    gateway.set_activation_code(seller_id, activation_code="abc12345", expires_at=expires_at)
+    lookup = gateway.find_by_activation_code("abc12345")
+
+    assert lookup is not None
+    assert lookup.seller_id == seller_id
+    assert lookup.activation_code_expires_at == expires_at
+
+
+def test_find_by_activation_code_returns_none_for_unknown_code(session):
+    assert SellerGateway(session).find_by_activation_code("does-not-exist") is None
+
+
+def test_set_access_token_clears_activation_code_and_sets_fields(session):
+    seller_id = insert_seller(session, name="Продавец для access_token", publication_key=None, catalog_hash=None)
+    gateway = SellerGateway(session)
+    gateway.set_activation_code(
+        seller_id, activation_code="code-1", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)
+    )
+
+    gateway.set_access_token(seller_id, access_token="tok-xyz", spreadsheet_id="sheet-abc")
+
+    assert gateway.find_by_activation_code("code-1") is None  # код одноразовый, обнулён
+    access = gateway.find_by_access_token("tok-xyz")
+    assert access is not None
+    assert access.seller_id == seller_id
+
+
+def test_find_by_access_token_returns_none_for_unknown_token(session):
+    assert SellerGateway(session).find_by_access_token("does-not-exist") is None
+
+
+def test_find_by_access_token_returns_none_for_inactive_seller(session):
+    seller_id = insert_seller(session, name="Неактивный продавец с токеном", publication_key=None, catalog_hash=None)
+    gateway = SellerGateway(session)
+    gateway.set_access_token(seller_id, access_token="tok-inactive", spreadsheet_id="sheet-x")
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
+
+    assert gateway.find_by_access_token("tok-inactive") is None
+
+
+def test_find_by_access_token_returns_seller_name_from_users(session):
+    seller_id = insert_seller(session, name="Ферма Токеновая", publication_key=None, catalog_hash=None)
+    gateway = SellerGateway(session)
+    gateway.set_access_token(seller_id, access_token="tok-name", spreadsheet_id="sheet-n")
+
+    access = gateway.find_by_access_token("tok-name")
+
+    assert access.name == "Ферма Токеновая"
