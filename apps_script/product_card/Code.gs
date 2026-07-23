@@ -207,7 +207,7 @@ function handleApiResponse(response, expectedStatus) {
 function uploadPhoto(base64Data, contentType, filename) {
   var accessToken = getOrPromptAccessToken();
   if (!accessToken) {
-    throw new Error('Не указан access_token — загрузка отменена.');
+    throw new Error('Доступ не активирован — загрузка отменена.');
   }
 
   var bytes = Utilities.base64Decode(base64Data);
@@ -230,7 +230,7 @@ function getPhotoUrls(photoIds) {
 
   var accessToken = getOrPromptAccessToken();
   if (!accessToken) {
-    throw new Error('Не указан access_token — превью недоступно.');
+    throw new Error('Доступ не активирован — превью недоступно.');
   }
 
   var url = API_BASE_URL + '/photos?ids=' + photoIds.join(',') + '&access_token=' + encodeURIComponent(accessToken);
