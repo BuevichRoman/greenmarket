@@ -48,6 +48,16 @@ function openCardForSelectedRow() {
     SpreadsheetApp.getUi().alert('Выделите строку товара в листе «Каталог» (не строку заголовка).');
     return;
   }
+  // «Открыть карточку» должна открывать только существующий товар — если строка
+  // пустая, это не тот товар, который продавец хотел открыть (по фидбеку коллеги
+  // 2026-07-24: раньше здесь молча создавалась новая карточка под видом «открытия»).
+  if (!rowHasProductData(sheet, rowIndex)) {
+    SpreadsheetApp.getUi().alert(
+      'В выбранной строке ещё нет товара. Чтобы открыть карточку существующего товара — ' +
+      'выделите строку с данными. Чтобы добавить новый товар — используйте «Добавить товар».'
+    );
+    return;
+  }
   showCard(rowIndex);
 }
 
@@ -56,9 +66,14 @@ function openCardForNewRow() {
   showCard(sheet.getLastRow() + 1);
 }
 
+function rowHasProductData(sheet, rowIndex) {
+  var values = sheet.getRange(rowIndex, 1, 1, COLUMN_ORDER.length).getValues()[0];
+  return values.some(function (value) { return value !== '' && value !== null; });
+}
+
 function showCard(rowIndex) {
   PropertiesService.getDocumentProperties().setProperty(CURRENT_ROW_PROPERTY, String(rowIndex));
-  var html = HtmlService.createHtmlOutputFromFile('Card').setWidth(520).setHeight(640);
+  var html = HtmlService.createHtmlOutputFromFile('Card').setWidth(680).setHeight(760);
   SpreadsheetApp.getUi().showModalDialog(html, 'Карточка товара');
 }
 

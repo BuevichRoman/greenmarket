@@ -3,25 +3,26 @@
 <head>
   <base target="_top">
   <style>
-    body { font-family: Arial, sans-serif; padding: 12px; }
-    label { display: block; margin-top: 10px; font-weight: bold; }
+    body { font-family: Arial, sans-serif; padding: 20px; font-size: 16px; }
+    label { display: block; margin-top: 14px; font-weight: bold; }
     input[type="text"], input[type="number"], select, textarea {
-      width: 100%; padding: 6px; box-sizing: border-box; margin-top: 4px;
+      width: 100%; padding: 10px; box-sizing: border-box; margin-top: 6px;
+      font-size: 15px; font-family: Arial, sans-serif;
     }
-    .price-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .price-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
     .price-row input { margin-top: 0; }
-    .hint { font-weight: normal; color: #888; font-size: 11px; }
-    .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-    .photo-thumb { position: relative; width: 80px; height: 80px; }
+    .hint { font-weight: normal; color: #888; font-size: 13px; }
+    .photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .photo-thumb { position: relative; width: 110px; height: 110px; }
     .photo-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
     .photo-thumb button {
-      position: absolute; top: -6px; right: -6px; background: #d33; color: #fff;
-      border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer;
+      position: absolute; top: -8px; right: -8px; background: #d33; color: #fff;
+      border: none; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; font-size: 15px;
     }
-    .actions { margin-top: 16px; display: flex; gap: 8px; }
-    button.primary { background: #2a7a2a; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-    button.secondary { background: #eee; border: 1px solid #ccc; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-    #status { margin-top: 10px; color: #888; font-size: 12px; }
+    .actions { margin-top: 20px; display: flex; gap: 10px; }
+    button.primary { background: #2a7a2a; color: #fff; border: none; padding: 12px 22px; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    button.secondary { background: #eee; border: 1px solid #ccc; padding: 12px 22px; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    #status { margin-top: 12px; color: #888; font-size: 13px; }
   </style>
 </head>
 <body>
