@@ -30,10 +30,12 @@ def get_google_sheets_parser_resource():
     return None
 
 
-def get_seller_access_resolver():
+def get_seller_access_resolver(session: Session = Depends(get_session)):
     """Переопределяется в тестах фейковым резолвером токенов —
-    см. `backend/tests/test_publications_api.py::override_seller_access`."""
-    return resolve_seller_access
+    см. `backend/tests/test_publications_api.py::override_seller_access`.
+    По умолчанию — резолвер, привязанный к session текущего запроса
+    (access_token резолвится через БД, см. seller_access.py)."""
+    return lambda access_token: resolve_seller_access(access_token, session)
 
 
 @router.post("", response_model=PublicationResponse)

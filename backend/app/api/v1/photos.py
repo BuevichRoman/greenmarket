@@ -25,8 +25,8 @@ def get_photo_storage():
     return None
 
 
-def get_seller_access_resolver():
-    return resolve_seller_access
+def get_seller_access_resolver(session: Session = Depends(get_session)):
+    return lambda access_token: resolve_seller_access(access_token, session)
 
 
 @router.post("", response_model=PhotoUploadResponse, status_code=201)

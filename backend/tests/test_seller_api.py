@@ -82,7 +82,7 @@ def test_get_seller_catalog_rejects_invalid_token(committing_session):
 
 def test_get_seller_catalog_returns_404_for_token_with_no_seller_row(committing_session):
     # Токен резолвится (не 403), но указывает на несуществующий seller_id —
-    # ошибка конфигурации SELLER_ACCESS_TOKENS, а не проблема доступа.
+    # продавец не найден по резолвленному seller_id, а не проблема доступа.
     override_session(committing_session)
     override_seller_access(999_999, 1)
     client = TestClient(app)
