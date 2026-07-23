@@ -62,7 +62,7 @@ class SemanticValidator:
 
         seller_name = _cell(row, _COL_SELLER_NAME)
         if not seller_name:
-            errors.append(self._required_field_empty(sheet_name, row_number, "Наименование продавца"))
+            errors.append(self._required_field_empty(sheet_name, row_number, "Название товара"))
 
         group_name = _cell(row, _COL_PRODUCT_GROUP)
         group = None

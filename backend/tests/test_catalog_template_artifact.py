@@ -94,7 +94,7 @@ def test_master_template_retains_formatting_and_protection():
 
     assert catalog_sheet.freeze_panes == "A2"
     assert str(catalog_sheet.auto_filter.ref) == "A1:J1000"
-    assert catalog_sheet.column_dimensions["B"].width >= len("Наименование продавца") * 0.9
+    assert catalog_sheet.column_dimensions["B"].width >= len("Название товара") * 0.9
 
 
 def test_partial_example_passes_full_pipeline(session):

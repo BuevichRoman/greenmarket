@@ -23,7 +23,7 @@ REQUIRED_SHEETS = [CATALOG_SHEET, PRODUCT_GROUPS_SHEET, PRODUCTS_SHEET, INSTRUCT
 # DocumentVersion/TemplateVersion, а не правка Parser/Validator.
 CATALOG_COLUMNS = [
     _Column("SellerProductId", required=False),
-    _Column("Наименование продавца", required=True),
+    _Column("Название товара", required=True),
     _Column("Товарная группа GreenMarket", required=True),
     _Column("Товарная позиция GreenMarket", required=False),
     _Column("Цена", required=True),
@@ -47,7 +47,7 @@ PRODUCTS_COLUMNS = [
 ]
 
 SYSTEM_FIELDS = ["TemplateVersion", "TemplateId"]
-SUPPORTED_TEMPLATE_VERSIONS = {"2.0"}
+SUPPORTED_TEMPLATE_VERSIONS = {"2.0", "2.1"}
 
 
 class StructureValidator:

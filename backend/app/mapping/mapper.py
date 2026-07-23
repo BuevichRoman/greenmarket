@@ -8,7 +8,7 @@ from app.validation.structure_validator import CATALOG_COLUMNS, CATALOG_SHEET, S
 # источник истины порядка колонок Excel Template v1.0, не отдельная копия.
 _COLUMN_INDEX = {column.name: index for index, column in enumerate(CATALOG_COLUMNS)}
 _COL_SELLER_PRODUCT_ID = _COLUMN_INDEX["SellerProductId"]
-_COL_SELLER_NAME = _COLUMN_INDEX["Наименование продавца"]
+_COL_SELLER_NAME = _COLUMN_INDEX["Название товара"]
 _COL_PRODUCT_GROUP = _COLUMN_INDEX["Товарная группа GreenMarket"]
 _COL_PRODUCT = _COLUMN_INDEX["Товарная позиция GreenMarket"]
 _COL_PRICE = _COLUMN_INDEX["Цена"]

@@ -3,7 +3,7 @@ from app.publication.hash_calculator import HashCalculator
 
 
 def make_workbook(catalog_rows: list[list[object]]) -> RawWorkbook:
-    header = ["SellerProductId", "Наименование продавца", "Цена"]
+    header = ["SellerProductId", "Название товара", "Цена"]
     return RawWorkbook(source="sheet", sheets=[RawSheet(name="Каталог", index=0, rows=[header, *catalog_rows])])
 
 
@@ -33,7 +33,7 @@ def test_row_order_affects_hash():
 def test_header_row_is_excluded_from_hash():
     # Заголовок не данные каталога — смена заголовка не должна менять хеш.
     header_a = RawSheet(name="Каталог", index=0, rows=[["X", "Y", "Z"], [1, "A", 50]])
-    header_b = RawSheet(name="Каталог", index=0, rows=[["SellerProductId", "Наименование продавца", "Цена"], [1, "A", 50]])
+    header_b = RawSheet(name="Каталог", index=0, rows=[["SellerProductId", "Название товара", "Цена"], [1, "A", 50]])
 
     a = HashCalculator().compute(RawWorkbook(source="s", sheets=[header_a]))
     b = HashCalculator().compute(RawWorkbook(source="s", sheets=[header_b]))

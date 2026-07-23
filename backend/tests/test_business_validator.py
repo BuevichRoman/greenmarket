@@ -3,7 +3,7 @@ from app.validation.business_validator import BusinessValidator
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",

@@ -10,7 +10,7 @@ from app.validation.errors import ValidationError, ValidationResult
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",
@@ -145,7 +145,7 @@ def test_row_that_violates_the_validated_contract_raises_mapper_error_not_a_raw_
 
 
 def test_coerces_non_string_catalog_cells_to_str():
-    # SemanticValidator проверяет "Наименование продавца"/"Единица продажи" только
+    # SemanticValidator проверяет "Название товара"/"Единица продажи" только
     # на непустоту (`if not value`), поэтому число вроде 777 проходит валидацию —
     # Mapper обязан привести их к единому строковому представлению.
     workbook = make_workbook([[1, 777, "Овощи", "Морковь", 50, 7, 5, None, None, "1"]])

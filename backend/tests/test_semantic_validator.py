@@ -8,7 +8,7 @@ from app.validation.semantic_validator import SemanticValidator
 
 HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",
@@ -48,7 +48,7 @@ def test_missing_required_field_reports_error(session):
     result = make_validator(session).validate(workbook)
 
     assert not result.is_valid
-    assert any(e.column == "Наименование продавца" for e in result.errors)
+    assert any(e.column == "Название товара" for e in result.errors)
 
 
 def test_unknown_product_group_reports_error(session):

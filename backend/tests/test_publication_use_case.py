@@ -7,7 +7,7 @@ from tests.test_google_sheets_parser import FakeSheetsResource
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",

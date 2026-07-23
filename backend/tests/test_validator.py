@@ -11,7 +11,7 @@ from app.validation.validator import Validator
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",
@@ -79,7 +79,7 @@ def test_structure_errors_stop_semantic_and_business_from_running(session):
 
 
 def test_combines_semantic_and_business_errors_when_structure_is_valid(session):
-    # Наименование продавца пусто (semantic) + дубль SellerProductId (business)
+    # Название товара пусто (semantic) + дубль SellerProductId (business)
     photo_id = insert_photo(session, s3_key="validator-2.jpg")
     rows = [
         [1, "", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", str(photo_id)],
@@ -99,5 +99,5 @@ def test_combines_semantic_and_business_errors_when_structure_is_valid(session):
     result = make_validator(session).validate(workbook)
 
     assert not result.is_valid
-    assert any(e.column == "Наименование продавца" for e in result.errors)
+    assert any(e.column == "Название товара" for e in result.errors)
     assert any("SellerProductId 1" in e.message for e in result.errors)

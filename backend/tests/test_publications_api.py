@@ -14,7 +14,7 @@ def override_seller_access(seller_id: int, published_by: int, *, name: str = "Т
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",

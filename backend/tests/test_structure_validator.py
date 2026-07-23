@@ -3,7 +3,7 @@ from app.validation.structure_validator import StructureValidator
 
 CATALOG_HEADER = [
     "SellerProductId",
-    "Наименование продавца",
+    "Название товара",
     "Товарная группа GreenMarket",
     "Товарная позиция GreenMarket",
     "Цена",
@@ -66,13 +66,13 @@ def test_missing_sheet_reports_error():
 
 def test_wrong_column_header_reports_error():
     bad_header = list(CATALOG_HEADER)
-    bad_header[1] = "Имя продавца"  # опечатка вместо "Наименование продавца"
+    bad_header[1] = "Имя продавца"  # опечатка вместо "Название товара"
     workbook = replace_sheet(make_valid_workbook(), "Каталог", [bad_header])
 
     result = StructureValidator().validate(workbook)
 
     assert not result.is_valid
-    assert any("Наименование продавца" in e.message for e in result.errors)
+    assert any("Название товара" in e.message for e in result.errors)
 
 
 def test_wrong_column_order_reports_error():
