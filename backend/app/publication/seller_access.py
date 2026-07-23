@@ -1,7 +1,8 @@
-import json
 from dataclasses import dataclass
 
-from app.core.config import settings
+from sqlalchemy.orm import Session
+
+from app.platform.seller_gateway import SellerGateway
 
 
 @dataclass(frozen=True)
@@ -11,16 +12,15 @@ class SellerAccess:
     name: str
 
 
-def resolve_seller_access(access_token: str, *, tokens_json: str | None = None) -> SellerAccess | None:
-    """Резолвит access_token продавца в (seller_id, published_by) — единственный
-    источник этой связки на стороне API: клиент больше не передаёт seller_id/
-    published_by напрямую (иначе любой мог опубликовать каталог от чужого имени).
-
-    Маппинг токенов приходит из SELLER_ACCESS_TOKENS (JSON в .env, не в git —
-    это данные о реальных продавцах)."""
-    raw = tokens_json if tokens_json is not None else settings.seller_access_tokens
-    tokens: dict = json.loads(raw)
-    entry = tokens.get(access_token)
-    if entry is None:
+def resolve_seller_access(access_token: str, session: Session) -> SellerAccess | None:
+    """Резолвит access_token продавца в (seller_id, published_by) через
+    SellerGateway (Anti-Corruption Layer к таблице Seller) — единственный
+    источник этой связки на стороне API: клиент не передаёт seller_id/
+    published_by напрямую (иначе любой мог опубликовать каталог от чужого
+    имени). access_token хранится в Seller.access_token, выдаётся через
+    POST /api/v1/seller/activate — не в .env/SELLER_ACCESS_TOKENS, см.
+    docs/superpowers/specs/2026-07-23-seller-activation-auth-design.md."""
+    row = SellerGateway(session).find_by_access_token(access_token)
+    if row is None:
         return None
-    return SellerAccess(seller_id=entry["seller_id"], published_by=entry["published_by"], name=entry["name"])
+    return SellerAccess(seller_id=row.seller_id, published_by=row.user_id, name=row.name)

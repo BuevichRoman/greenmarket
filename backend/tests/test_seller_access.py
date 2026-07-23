@@ -1,26 +1,37 @@
+from sqlalchemy import text
+
 from app.publication.seller_access import resolve_seller_access
 
 
-def test_valid_token_resolves_to_seller_access():
-    tokens_json = '{"tok-abc": {"seller_id": 1, "published_by": 457, "name": "Ферма Ромашково"}}'
+def insert_seller(session, *, name: str, access_token: str | None = None) -> int:
+    user_id = session.execute(text("INSERT INTO users (name) VALUES (:name)"), {"name": name}).lastrowid
+    seller_id = session.execute(text("INSERT INTO Seller (user_id) VALUES (:user_id)"), {"user_id": user_id}).lastrowid
+    if access_token is not None:
+        session.execute(
+            text("UPDATE Seller SET access_token = :token, is_active = TRUE WHERE id = :id"),
+            {"token": access_token, "id": seller_id},
+        )
+    return seller_id
 
-    access = resolve_seller_access("tok-abc", tokens_json=tokens_json)
+
+def test_valid_token_resolves_to_seller_access(session):
+    seller_id = insert_seller(session, name="Ферма Ромашково", access_token="tok-abc")
+
+    access = resolve_seller_access("tok-abc", session)
 
     assert access is not None
-    assert access.seller_id == 1
-    assert access.published_by == 457
+    assert access.seller_id == seller_id
     assert access.name == "Ферма Ромашково"
 
 
-def test_unknown_token_resolves_to_none():
-    tokens_json = '{"tok-abc": {"seller_id": 1, "published_by": 457, "name": "Ферма Ромашково"}}'
+def test_unknown_token_resolves_to_none(session):
+    insert_seller(session, name="Ферма Ромашково", access_token="tok-abc")
 
-    access = resolve_seller_access("tok-does-not-exist", tokens_json=tokens_json)
-
-    assert access is None
+    assert resolve_seller_access("tok-does-not-exist", session) is None
 
 
-def test_empty_tokens_config_resolves_to_none():
-    access = resolve_seller_access("anything", tokens_json="{}")
+def test_inactive_seller_resolves_to_none(session):
+    seller_id = insert_seller(session, name="Неактивная ферма", access_token="tok-inactive")
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
 
-    assert access is None
+    assert resolve_seller_access("tok-inactive", session) is None
