@@ -2,6 +2,7 @@
 // Container-bound script: привязан к рабочей книге продавца (Seller Workspace).
 
 var API_BASE_URL = 'https://CHANGE_ME.example.com/api/v1'; // TODO: заменить на реальный адрес backend перед деплоем
+var SELLER_CABINET_URL = 'https://CHANGE_ME.example.com/seller/'; // TODO: заменить на реальный адрес Seller Cabinet перед деплоем
 
 var CATALOG_SHEET_NAME = 'Каталог';
 var GROUPS_SHEET_NAME = 'Товарные группы';
@@ -36,6 +37,7 @@ function onOpen() {
     .createMenu('GreenMarket')
     .addItem('Открыть карточку', 'openCardForSelectedRow')
     .addItem('Добавить товар', 'openCardForNewRow')
+    .addItem('Личный кабинет', 'openSellerCabinet')
     .addToUi();
 }
 
@@ -150,17 +152,37 @@ function getOrPromptAccessToken() {
 
   var ui = SpreadsheetApp.getUi();
   var result = ui.prompt(
-    'Токен доступа',
-    'Введите access_token продавца (тот же, что для публикации каталога в личном кабинете):',
+    'Активация доступа',
+    'Введите код активации, полученный от администратора GreenMarket:',
     ui.ButtonSet.OK_CANCEL
   );
   if (result.getSelectedButton() !== ui.Button.OK) return null;
 
-  token = result.getResponseText().trim();
-  if (!token) return null;
+  var activationCode = result.getResponseText().trim();
+  if (!activationCode) return null;
+
+  token = activateAccess_(activationCode);
+  if (!token) {
+    ui.alert('Код активации недействителен, просрочен или уже использован. Обратитесь к администратору за новым кодом.');
+    return null;
+  }
 
   props.setProperty(ACCESS_TOKEN_PROPERTY, token);
   return token;
+}
+
+function activateAccess_(activationCode) {
+  var response = UrlFetchApp.fetch(API_BASE_URL + '/seller/activate', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      activation_code: activationCode,
+      spreadsheet_id: SpreadsheetApp.getActiveSpreadsheet().getId(),
+    }),
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() !== 200) return null;
+  return JSON.parse(response.getContentText()).access_token;
 }
 
 function handleApiResponse(response, expectedStatus) {
@@ -214,4 +236,16 @@ function getPhotoUrls(photoIds) {
   var url = API_BASE_URL + '/photos?ids=' + photoIds.join(',') + '&access_token=' + encodeURIComponent(accessToken);
   var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
   return handleApiResponse(response, 200).photos;
+}
+
+function openSellerCabinet() {
+  var token = getOrPromptAccessToken();
+  if (!token) return;
+
+  var url = SELLER_CABINET_URL + '?token=' + encodeURIComponent(token);
+  var html = HtmlService
+    .createHtmlOutput('<a href="' + url + '" target="_blank">Открыть личный кабинет</a>')
+    .setWidth(320)
+    .setHeight(80);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Личный кабинет');
 }
