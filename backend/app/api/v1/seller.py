@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.publications import get_seller_access_resolver
 from app.api.v1.schemas import error_response
-from app.api.v1.seller_schemas import SellerStatusResponse
+from app.api.v1.seller_schemas import SellerActivationRequest, SellerActivationResponse, SellerStatusResponse
 from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.platform.seller_gateway import SellerGateway
+from app.publication.seller_activation import activate_seller
 
 router = APIRouter(prefix="/api/v1/seller", tags=["seller"])
 
@@ -37,3 +38,16 @@ def get_seller_catalog(
         published_product_count=SellerProductRepository(session).count_published(access.seller_id),
         last_published_at=last_published_at,
     )
+
+
+@router.post("/activate", response_model=SellerActivationResponse)
+def activate(
+    request: SellerActivationRequest,
+    session: Session = Depends(get_session),
+) -> SellerActivationResponse | JSONResponse:
+    access_token = activate_seller(request.activation_code, spreadsheet_id=request.spreadsheet_id, session=session)
+    if access_token is None:
+        return error_response(400, "INVALID_ACTIVATION_CODE", "Код активации недействителен.")
+
+    session.commit()
+    return SellerActivationResponse(access_token=access_token)
