@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import text
 
 from app.platform.seller_gateway import SellerGateway
@@ -109,9 +111,6 @@ def test_get_status_returns_false_for_inactive_seller(session):
     status = SellerGateway(session).get_status(seller_id)
 
     assert status.is_active is False
-
-
-from datetime import datetime, timedelta, timezone
 
 
 def test_set_activation_code_and_find_by_activation_code(session):
