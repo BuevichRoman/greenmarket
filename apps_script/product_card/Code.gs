@@ -9,6 +9,12 @@ var PRODUCTS_SHEET_NAME = 'Товарные позиции';
 var OTHER_PRODUCT_PLACEHOLDER = 'Прочее';
 var ACCESS_TOKEN_PROPERTY = 'GREENMARKET_ACCESS_TOKEN';
 var CURRENT_ROW_PROPERTY = 'GREENMARKET_CURRENT_ROW';
+var LAST_PRODUCT_GROUP_PROPERTY = 'GREENMARKET_LAST_PRODUCT_GROUP';
+
+// Справочник единиц продажи — для начала фиксированный список (не отдельный лист),
+// т.к. состав редко меняется. Старое значение ячейки, которого нет в списке,
+// всё равно не теряется — populateSelectWithFallback на стороне Card.html.
+var UNIT_OPTIONS = ['шт.', 'кг', 'упаковка', 'коробка'];
 
 // Порядок точно соответствует CATALOG_COLUMNS в backend/app/validation/structure_validator.py —
 // не менять без синхронной правки backend-контракта.
@@ -67,6 +73,13 @@ function getCardData() {
   var fields = {};
   COLUMN_ORDER.forEach(function (name, i) { fields[name] = rawRow[i]; });
 
+  if (isNewRow) {
+    // Продавец обычно добавляет несколько товаров одной группы подряд —
+    // подставляем группу с предыдущей сохранённой карточки.
+    var lastGroup = PropertiesService.getDocumentProperties().getProperty(LAST_PRODUCT_GROUP_PROPERTY);
+    if (lastGroup) fields['Товарная группа GreenMarket'] = lastGroup;
+  }
+
   var referenceLists = getReferenceLists();
 
   return {
@@ -76,6 +89,7 @@ function getCardData() {
     photoIds: parsePhotoIds(fields['Фото']),
     groups: referenceLists.groups,
     products: referenceLists.products,
+    units: UNIT_OPTIONS,
   };
 }
 
@@ -123,6 +137,10 @@ function saveRow(rowIndex, formData) {
   ];
 
   sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
+
+  if (formData.productGroup) {
+    PropertiesService.getDocumentProperties().setProperty(LAST_PRODUCT_GROUP_PROPERTY, formData.productGroup);
+  }
 }
 
 function getOrPromptAccessToken() {

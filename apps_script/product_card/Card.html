@@ -8,6 +8,9 @@
     input[type="text"], input[type="number"], select, textarea {
       width: 100%; padding: 6px; box-sizing: border-box; margin-top: 4px;
     }
+    .price-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .price-row input { margin-top: 0; }
+    .hint { font-weight: normal; color: #888; font-size: 11px; }
     .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .photo-thumb { position: relative; width: 80px; height: 80px; }
     .photo-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
@@ -23,9 +26,6 @@
 </head>
 <body>
   <div id="form">
-    <label>Наименование продавца</label>
-    <input type="text" id="sellerName">
-
     <label>Товарная группа GreenMarket</label>
     <select id="productGroup"></select>
 
@@ -33,10 +33,25 @@
     <select id="productName"></select>
 
     <label>Цена</label>
-    <input type="number" id="price" step="0.01">
+    <div class="price-row">
+      <input type="number" id="price" step="0.01">
+      <span>руб.</span>
+    </div>
+
+    <label>Закупочная цена <span class="hint">(не сохраняется, для себя)</span></label>
+    <div class="price-row">
+      <input type="number" id="costPrice" step="0.01">
+      <span>руб.</span>
+    </div>
+
+    <label>Цена продажи <span class="hint">(не сохраняется, для себя)</span></label>
+    <div class="price-row">
+      <input type="number" id="sellPrice" step="0.01">
+      <span>руб.</span>
+    </div>
 
     <label>Единица продажи</label>
-    <input type="text" id="unit">
+    <select id="unit"></select>
 
     <label>Остаток</label>
     <input type="number" id="stock" step="0.001">
@@ -108,15 +123,14 @@
     function fillForm(data) {
       currentRowIndex = data.rowIndex;
       var f = data.fields;
-      document.getElementById('sellerName').value = f['Наименование продавца'] || '';
       document.getElementById('price').value = f['Цена'] || '';
-      document.getElementById('unit').value = f['Единица продажи'] || '';
       document.getElementById('stock').value = f['Остаток'] || '';
       document.getElementById('description').value = f['Описание'] || '';
       document.getElementById('attributes').value = f['Дополнительные характеристики'] || '';
 
       populateSelectWithFallback(document.getElementById('productGroup'), data.groups, f['Товарная группа GreenMarket']);
       populateSelectWithFallback(document.getElementById('productName'), data.products, f['Товарная позиция GreenMarket']);
+      populateSelectWithFallback(document.getElementById('unit'), data.units, f['Единица продажи']);
 
       photoIds = data.photoIds.slice();
       if (photoIds.length > 0) {
@@ -178,7 +192,7 @@
         return;
       }
       var formData = {
-        sellerName: document.getElementById('sellerName').value,
+        sellerName: document.getElementById('productName').value, // отдельного поля больше нет — колонка "Наименование продавца" заполняется товарной позицией
         productGroup: document.getElementById('productGroup').value,
         productName: document.getElementById('productName').value,
         price: document.getElementById('price').value,
