@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -14,6 +15,12 @@ from app.infrastructure.database import get_session
 app = FastAPI(
     title="GreenMarket Backend",
     version="1.0.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://green-market-nine.vercel.app"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(publications_router)
 app.include_router(catalog_router)
