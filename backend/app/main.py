@@ -18,7 +18,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://green-market-nine.vercel.app"],
+    allow_origin_regex=r"^https://green-market-nine(-[a-z0-9-]+)?\.vercel\.app$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
