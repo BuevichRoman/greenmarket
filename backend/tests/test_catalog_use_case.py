@@ -162,6 +162,17 @@ def test_get_product_returns_offers_sorted_by_price(session):
     assert [offer["price"] for offer in result["offers"]] == [20, 200]
 
 
+def test_get_product_returns_platform_seller_name_not_offer_title(session):
+    group_id = insert_product_group(session, name="Группа для имени продавца")
+    product_id = insert_product(session, group_id=group_id, name="Товар для имени продавца")
+    seller_id = insert_active_seller(session, name="Ферма Ромашково")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    result = CatalogUseCase(session).get_product(product_id)
+
+    assert [offer["seller_name"] for offer in result["offers"]] == ["Ферма Ромашково"]
+
+
 def test_get_product_returns_none_for_product_without_visible_offers(session):
     group_id = insert_product_group(session, name="Группа для get_product без предложений")
     product_id = insert_product(session, group_id=group_id, name="Товар без предложений get_product")

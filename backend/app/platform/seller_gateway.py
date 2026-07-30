@@ -84,6 +84,18 @@ class SellerGateway:
         rows = self.session.execute(stmt, {"seller_ids": seller_ids}).all()
         return {row[0] for row in rows}
 
+    def list_seller_names(self, seller_ids: list[int]) -> dict[int, str]:
+        """Отображаемые имена продавцов из платформенной users (см. Seller_Profile.md,
+        поле `name`) — SellerProduct.seller_name хранит название товара продавца,
+        а не продавца."""
+        if not seller_ids:
+            return {}
+        stmt = text(
+            "SELECT s.id, u.name FROM Seller s JOIN users u ON u.id_user = s.user_id WHERE s.id IN :seller_ids"
+        ).bindparams(bindparam("seller_ids", expanding=True))
+        rows = self.session.execute(stmt, {"seller_ids": seller_ids}).all()
+        return {row[0]: row[1] for row in rows}
+
     def find_by_activation_code(self, activation_code: str) -> ActivationLookup | None:
         row = self.session.execute(
             text("SELECT id, activation_code_expires_at FROM Seller WHERE activation_code = :code"),

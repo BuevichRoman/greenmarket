@@ -168,3 +168,14 @@ def test_find_by_access_token_returns_seller_name_from_users(session):
     access = gateway.find_by_access_token("tok-name")
 
     assert access.name == "Ферма Токеновая"
+
+def test_list_seller_names_returns_names_from_users(session):
+    seller_a = insert_seller(session, name="Ферма Ромашково", publication_key=None, catalog_hash=None)
+    seller_b = insert_seller(session, name="Хутор Заречный", publication_key=None, catalog_hash=None)
+
+    names = SellerGateway(session).list_seller_names([seller_a, seller_b])
+
+    assert names == {seller_a: "Ферма Ромашково", seller_b: "Хутор Заречный"}
+
+def test_list_seller_names_returns_empty_dict_for_empty_input(session):
+    assert SellerGateway(session).list_seller_names([]) == {}

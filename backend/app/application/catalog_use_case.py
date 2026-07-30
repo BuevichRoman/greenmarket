@@ -130,6 +130,7 @@ class CatalogUseCase:
         offers_sorted = sorted(offers, key=lambda o: (o.price, o.id))
         offer_ids = [offer.id for offer in offers_sorted]
         photos_by_seller_product = self.photo_gateway.list_by_seller_products(offer_ids)
+        seller_names = self.seller_gateway.list_seller_names(list({offer.seller_id for offer in offers_sorted}))
 
         return {
             "id": product.id,
@@ -139,7 +140,7 @@ class CatalogUseCase:
                 {
                     "seller_product_id": offer.id,
                     "seller_id": offer.seller_id,
-                    "seller_name": offer.seller_name,
+                    "seller_name": seller_names.get(offer.seller_id, ""),
                     "price": offer.price,
                     "unit": offer.unit,
                     "stock": offer.stock,
