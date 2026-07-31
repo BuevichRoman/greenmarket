@@ -2,12 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "buyer-web-frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "buyer-web", "run", "dev", "--", "--host"],
-      "port": 5173
-    },
-    {
       "name": "seller-cabinet-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "seller-cabinet", "run", "dev", "--", "--host"],

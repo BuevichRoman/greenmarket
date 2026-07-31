@@ -14,14 +14,6 @@ systemctl is-active greenmarket-api
 curl -sf localhost/health
 echo
 
-echo "=== buyer-web ==="
-cd /opt/greenmarket/buyer-web
-npm ci
-npx tsc -b
-npx vite build --base=/buyer/
-rm -rf /var/www/html/buyer/*
-cp -r dist/* /var/www/html/buyer/
-
 echo "=== seller-cabinet ==="
 cd /opt/greenmarket/seller-cabinet
 npm ci
