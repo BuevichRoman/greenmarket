@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import text
 
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
@@ -26,7 +27,7 @@ def test_create_persists_and_returns_seller_product_with_id(session):
 
     created = repository.create(
         seller_id=seller_id, product_id=None, seller_name="Ферма А",
-        price=50, stock=5, unit="кг", description=None,
+        price=50, stock=5, unit="кг", description=None, is_published=True,
     )
 
     assert created.id is not None
@@ -38,8 +39,8 @@ def test_list_by_seller_returns_only_that_sellers_products(session):
     seller_a = insert_seller(session, name="Продавец А")
     seller_b = insert_seller(session, name="Продавец Б")
     repository = SellerProductRepository(session)
-    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А1", price=1, stock=1, unit="шт", description=None)
-    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б1", price=2, stock=2, unit="шт", description=None)
+    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А1", price=1, stock=1, unit="шт", description=None, is_published=True)
+    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б1", price=2, stock=2, unit="шт", description=None, is_published=True)
 
     result = repository.list_by_seller(seller_a)
 
@@ -50,7 +51,7 @@ def test_list_by_seller_returns_only_that_sellers_products(session):
 def test_find_by_id_returns_created_seller_product(session):
     seller_id = insert_seller(session, name="Продавец В")
     repository = SellerProductRepository(session)
-    created = repository.create(seller_id=seller_id, product_id=None, seller_name="Товар В1", price=3, stock=3, unit="шт", description=None)
+    created = repository.create(seller_id=seller_id, product_id=None, seller_name="Товар В1", price=3, stock=3, unit="шт", description=None, is_published=True)
 
     found = repository.find_by_id(created.id)
 
@@ -69,14 +70,10 @@ def test_list_published_for_products_excludes_unpublished(session):
     seller_id = insert_seller(session, name="Продавец для published-фильтра")
     repository = SellerProductRepository(session)
     published = repository.create(
-        seller_id=seller_id, product_id=product_id, seller_name="Опубликован", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_id, seller_name="Опубликован", price=10, stock=1, unit="шт", description=None, is_published=True,
     )
     unpublished = repository.create(
-        seller_id=seller_id, product_id=product_id, seller_name="Не опубликован", price=20, stock=1, unit="шт", description=None,
-    )
-    session.execute(
-        text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"),
-        {"id": unpublished.id},
+        seller_id=seller_id, product_id=product_id, seller_name="Не опубликован", price=20, stock=1, unit="шт", description=None, is_published=False,
     )
 
     result = repository.list_published_for_products([product_id])
@@ -93,10 +90,10 @@ def test_list_published_for_products_filters_by_product_id(session):
     seller_id = insert_seller(session, name="Продавец для product_id-фильтра")
     repository = SellerProductRepository(session)
     for_product_a = repository.create(
-        seller_id=seller_id, product_id=product_a_id, seller_name="Товар A", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_a_id, seller_name="Товар A", price=10, stock=1, unit="шт", description=None, is_published=True,
     )
     repository.create(
-        seller_id=seller_id, product_id=product_b_id, seller_name="Товар B", price=10, stock=1, unit="шт", description=None,
+        seller_id=seller_id, product_id=product_b_id, seller_name="Товар B", price=10, stock=1, unit="шт", description=None, is_published=True,
     )
 
     result = repository.list_published_for_products([product_a_id])
@@ -111,9 +108,8 @@ def test_list_published_for_products_returns_empty_list_for_empty_input(session)
 def test_count_published_counts_only_published(session):
     seller_id = insert_seller(session, name="Продавец для count_published")
     repository = SellerProductRepository(session)
-    repository.create(seller_id=seller_id, product_id=None, seller_name="Опубликован для count", price=1, stock=1, unit="шт", description=None)
-    unpublished = repository.create(seller_id=seller_id, product_id=None, seller_name="Не опубликован для count", price=1, stock=1, unit="шт", description=None)
-    session.execute(text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"), {"id": unpublished.id})
+    repository.create(seller_id=seller_id, product_id=None, seller_name="Опубликован для count", price=1, stock=1, unit="шт", description=None, is_published=True)
+    repository.create(seller_id=seller_id, product_id=None, seller_name="Не опубликован для count", price=1, stock=1, unit="шт", description=None, is_published=False)
 
     assert repository.count_published(seller_id) == 1
 
@@ -123,11 +119,40 @@ def test_count_published_returns_zero_for_seller_without_products(session):
     assert SellerProductRepository(session).count_published(seller_id) == 0
 
 
+def test_insert_without_visibility_leaves_product_hidden_from_buyers(session):
+    """Safety by default: неполная вставка (мимо репозитория — руками, миграцией,
+    будущим кодом) не должна приводить к публикации товара покупателю."""
+    seller_id = insert_seller(session, name="Продавец для дефолта видимости")
+    seller_product_id = session.execute(
+        text("INSERT INTO SellerProduct (seller_id, seller_name, unit) VALUES (:seller_id, :seller_name, :unit)"),
+        {"seller_id": seller_id, "seller_name": "Товар без явной видимости", "unit": "шт"},
+    ).lastrowid
+
+    is_published = session.execute(
+        text("SELECT is_published FROM SellerProduct WHERE id = :id"), {"id": seller_product_id}
+    ).scalar()
+
+    assert is_published == 0
+
+
+def test_create_requires_explicit_visibility(session):
+    """Тот же safety by default на уровне кода: видимость нельзя получить молча,
+    её обязан назвать вызывающий."""
+    seller_id = insert_seller(session, name="Продавец для явной видимости")
+    repository = SellerProductRepository(session)
+
+    with pytest.raises(TypeError):
+        repository.create(
+            seller_id=seller_id, product_id=None, seller_name="Товар без явной видимости",
+            price=1, stock=1, unit="шт", description=None,
+        )
+
+
 def test_count_published_only_counts_the_given_seller(session):
     seller_a = insert_seller(session, name="Продавец А для count_published изоляции")
     seller_b = insert_seller(session, name="Продавец Б для count_published изоляции")
     repository = SellerProductRepository(session)
-    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А", price=1, stock=1, unit="шт", description=None)
-    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None)
+    repository.create(seller_id=seller_a, product_id=None, seller_name="Товар А", price=1, stock=1, unit="шт", description=None, is_published=True)
+    repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None, is_published=True)
 
     assert repository.count_published(seller_a) == 1

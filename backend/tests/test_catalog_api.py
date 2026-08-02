@@ -47,8 +47,8 @@ def insert_active_seller(session, *, name: str) -> int:
 def insert_seller_product(session, *, seller_id: int, product_id: int, price) -> int:
     return session.execute(
         text(
-            "INSERT INTO SellerProduct (seller_id, product_id, seller_name, price, unit) "
-            "VALUES (:seller_id, :product_id, 'Тестовый продавец роутера', :price, 'шт')"
+            "INSERT INTO SellerProduct (seller_id, product_id, seller_name, price, unit, is_published) "
+            "VALUES (:seller_id, :product_id, 'Тестовый продавец роутера', :price, 'шт', TRUE)"
         ),
         {"seller_id": seller_id, "product_id": product_id, "price": price},
     ).lastrowid

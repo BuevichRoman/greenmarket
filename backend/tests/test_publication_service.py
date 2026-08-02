@@ -178,7 +178,7 @@ def test_conflict_error_rolls_back_all_changes(committing_session):
     other_seller_id = insert_seller(committing_session, name="Другая ферма")
     user_id = insert_user(committing_session, name="Admin")
     other_seller_product_id = SellerProductRepository(committing_session).create(
-        seller_id=other_seller_id, product_id=None, seller_name="Чужой товар", price=1, stock=1, unit="шт", description=None
+        seller_id=other_seller_id, product_id=None, seller_name="Чужой товар", price=1, stock=1, unit="шт", description=None, is_published=True
     ).id
     service = make_service(committing_session)
 
@@ -200,7 +200,7 @@ def test_seller_product_belonging_to_another_seller_is_rejected(committing_sessi
     other_seller_id = insert_seller(committing_session, name="Ферма Б")
     user_id = insert_user(committing_session, name="Admin")
     other_id = SellerProductRepository(committing_session).create(
-        seller_id=other_seller_id, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None
+        seller_id=other_seller_id, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None, is_published=True
     ).id
     service = make_service(committing_session)
 

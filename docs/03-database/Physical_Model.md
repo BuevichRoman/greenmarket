@@ -72,6 +72,8 @@ Photo
 
 **Значения `moderation_status`:** `WAIT_PRODUCT` (товар без связи с Product, ожидает модерации), `IN_PROGRESS` (модерация начата), `RESOLVED` (модерация завершена).
 
+**Значение `is_published` по умолчанию — `FALSE`** (миграция 012): вставка, не указавшая видимость явно, не показывает предложение покупателю. Видимость назначается только осознанно — Publication Service (см. [Publication_Model.md](../02-domain/Publication_Model.md), раздел «Видимость предложения в Buyer Catalog»).
+
 **Особенности:** принадлежит одному продавцу; содержит коммерческие данные; создаётся Publication Service; физически не удаляется.
 
 ## SellerProductPhoto
