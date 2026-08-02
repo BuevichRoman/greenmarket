@@ -54,7 +54,7 @@ Frontend должен: успешно собираться; запускатьс
 
 ## Проверка работоспособности
 
-Система должна предоставлять endpoint `GET /api/v1/health`, отвечающий `{"status": "ok"}`. Endpoint используется системой мониторинга и CI.
+Система должна предоставлять endpoint `GET /health` (без префикса `/api/v1`), отвечающий `{"status": "UP", "database": "UP"}` при исправной БД. Endpoint используется системой мониторинга и деплоем (`ci/deploy-impl.sh` дёргает `localhost/health` после перезапуска сервиса). Подробнее — [REST_API.md](../04-services/REST_API.md), раздел System API.
 
 ## CI
 
