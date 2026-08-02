@@ -99,13 +99,12 @@ def test_get_seller_catalog_reflects_active_flag_and_published_product_count(com
 
     seller_id = insert_seller(committing_session, name="Продавец активен с товарами API")
     committing_session.execute(text("UPDATE Seller SET is_active = TRUE WHERE id = :id"), {"id": seller_id})
-    published = SellerProductRepository(committing_session).create(
-        seller_id=seller_id, product_id=None, seller_name="Товар для статуса API", price=1, stock=1, unit="шт", description=None,
+    SellerProductRepository(committing_session).create(
+        seller_id=seller_id, product_id=None, seller_name="Товар для статуса API", price=1, stock=1, unit="шт", description=None, is_published=True,
     )
-    unpublished = SellerProductRepository(committing_session).create(
-        seller_id=seller_id, product_id=None, seller_name="Неопубликован для статуса API", price=1, stock=1, unit="шт", description=None,
+    SellerProductRepository(committing_session).create(
+        seller_id=seller_id, product_id=None, seller_name="Неопубликован для статуса API", price=1, stock=1, unit="шт", description=None, is_published=False,
     )
-    committing_session.execute(text("UPDATE SellerProduct SET is_published = FALSE WHERE id = :id"), {"id": unpublished.id})
     override_session(committing_session)
     override_seller_access(seller_id, seller_id)
     client = TestClient(app)
