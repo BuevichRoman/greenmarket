@@ -253,9 +253,19 @@ function getPhotoUrls(photoIds) {
   return handleApiResponse(response, 200).photos;
 }
 
+// Единственное действие, которое не ходит в API само, — поэтому мёртвый токен здесь
+// никогда не чистился через handleApiResponse, и продавец получал ссылку, которая
+// молча не работает. Проверяем токен перед выдачей ссылки.
 function openSellerCabinet() {
   var token = getOrPromptAccessToken();
   if (!token) return;
+
+  if (isAccessTokenRejected_(token)) {
+    PropertiesService.getDocumentProperties().deleteProperty(ACCESS_TOKEN_PROPERTY);
+    SpreadsheetApp.getUi().alert('Сохранённый доступ к GreenMarket больше не действует. Введите новый код активации.');
+    token = getOrPromptAccessToken(); // свойство очищено — запросит код заново
+    if (!token) return;
+  }
 
   var url = SELLER_CABINET_URL + '?token=' + encodeURIComponent(token);
   var html = HtmlService
@@ -263,4 +273,15 @@ function openSellerCabinet() {
     .setWidth(320)
     .setHeight(80);
   SpreadsheetApp.getUi().showModalDialog(html, 'Личный кабинет');
+}
+
+// Отзываем токен только на явный 403 — сетевой сбой или 5xx на стороне сервера
+// не повод заставлять продавца заново активировать книгу.
+function isAccessTokenRejected_(token) {
+  var url = API_BASE_URL + '/seller/catalog?access_token=' + encodeURIComponent(token);
+  try {
+    return UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true }).getResponseCode() === 403;
+  } catch (e) {
+    return false;
+  }
 }
