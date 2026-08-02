@@ -49,6 +49,7 @@ class SellerProductRepository:
         stock: float,
         unit: str,
         description: str | None,
+        is_published: bool = True,
     ) -> SellerProduct:
         now = datetime.now(timezone.utc)
         seller_product = SellerProduct(
@@ -59,7 +60,7 @@ class SellerProductRepository:
             stock=stock,
             unit=unit,
             description=description,
-            is_published=True,
+            is_published=is_published,
             moderation_status="WAIT_PRODUCT",
             created_at=now,
             updated_at=now,

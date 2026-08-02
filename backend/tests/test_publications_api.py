@@ -425,3 +425,33 @@ def test_get_publications_rejects_invalid_token(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
+
+
+def test_publication_response_lists_products_hidden_without_photo(committing_session):
+    from fastapi.testclient import TestClient
+
+    seller_id = insert_seller(committing_session, name="Ферма API без фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo_id = insert_photo(committing_session, s3_key="api-hidden.jpg")
+    override_session(committing_session)
+    override_seller_access(seller_id, user_id)
+    override_resource(
+        make_resource(
+            [
+                [None, "Яблоко", "Цитрусовые", "Прочее", 50, "кг", 5, "", "", str(photo_id)],
+                [None, "Огурец", "Цитрусовые", "Прочее", 60, "кг", 5, "", "", ""],
+            ]
+        )
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/publications",
+        json={"access_token": VALID_TOKEN, "spreadsheet_id": "sheet-api-hidden"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == 2
+    assert body["hidden_no_photo"] == ["Огурец"]

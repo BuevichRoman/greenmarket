@@ -30,6 +30,9 @@ class PublicationResponse(BaseModel):
     deactivated: int
     message: str
     mode: str
+    # Товары, сохранённые в каталог продавца, но не показанные покупателю из-за
+    # пустой колонки «Фото». Публикация при этом считается успешной.
+    hidden_no_photo: list[str] = []
 
 
 class PublicationHistoryItem(BaseModel):

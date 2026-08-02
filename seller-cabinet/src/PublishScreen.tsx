@@ -60,6 +60,20 @@ function PublishScreen({ accessToken }: { accessToken: string }) {
             <li>Обновлено: {result.data.updated}</li>
             <li>Деактивировано: {result.data.deactivated}</li>
           </ul>
+          {result.data.hidden_no_photo.length > 0 && (
+            <div className="hidden-no-photo">
+              <h3>Не попали в каталог — нет фото</h3>
+              <ul>
+                {result.data.hidden_no_photo.map((name, i) => (
+                  <li key={i}>{name}</li>
+                ))}
+              </ul>
+              <p>
+                Товар сохранён, но покупателю не показывается. Добавьте фото в колонку «Фото» и
+                опубликуйте каталог заново.
+              </p>
+            </div>
+          )}
           <p className="publication-id">Publication ID: {result.data.publication_id}</p>
         </div>
       )}

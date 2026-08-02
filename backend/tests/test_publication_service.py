@@ -145,18 +145,25 @@ def test_publishing_alongside_new_product_only_counts_new_one(committing_session
 def test_publishing_catalog_missing_previous_product_deactivates_it(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма удаление")
     user_id = insert_user(committing_session, name="Admin")
+    # Фото обязательны для попадания в каталог покупателя — без них товар был бы
+    # скрыт сам по себе, и тест про деактивацию проверял бы не то.
+    photo_a = insert_photo(committing_session, s3_key="deact-a.jpg")
+    photo_b = insert_photo(committing_session, s3_key="deact-b.jpg")
     service = make_service(committing_session)
 
     first = make_model(
         seller_id,
-        [make_product(seller_name="Остаётся", price=10), make_product(seller_name="Пропадёт", price=20)],
+        [
+            make_product(seller_name="Остаётся", price=10, photo_ids=[photo_a]),
+            make_product(seller_name="Пропадёт", price=20, photo_ids=[photo_b]),
+        ],
     )
     service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     remaining, disappearing = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
     second = make_model(
         seller_id,
-        [make_product(seller_product_id=remaining.id, seller_name="Остаётся", price=10)],
+        [make_product(seller_product_id=remaining.id, seller_name="Остаётся", price=10, photo_ids=[photo_a])],
     )
     result = service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
@@ -221,21 +228,31 @@ def test_duplicate_publication_key_is_rejected(committing_session):
 def test_product_returning_after_deactivation_is_reactivated(committing_session):
     seller_id = insert_seller(committing_session, name="Ферма реактивация")
     user_id = insert_user(committing_session, name="Admin")
+    photo_a = insert_photo(committing_session, s3_key="react-a.jpg")
+    photo_b = insert_photo(committing_session, s3_key="react-b.jpg")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)])
+    first = make_model(
+        seller_id,
+        [
+            make_product(seller_name="A", price=10, photo_ids=[photo_a]),
+            make_product(seller_name="B", price=20, photo_ids=[photo_b]),
+        ],
+    )
     service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     kept, dropped = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
-    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)])
+    second = make_model(
+        seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10, photo_ids=[photo_a])]
+    )
     service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
     assert SellerProductRepository(committing_session).find_by_id(dropped.id).is_published is False
 
     third = make_model(
         seller_id,
         [
-            make_product(seller_product_id=kept.id, seller_name="A", price=10),
-            make_product(seller_product_id=dropped.id, seller_name="B", price=99),
+            make_product(seller_product_id=kept.id, seller_name="A", price=10, photo_ids=[photo_a]),
+            make_product(seller_product_id=dropped.id, seller_name="B", price=99, photo_ids=[photo_b]),
         ],
     )
     result = service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
@@ -252,20 +269,30 @@ def test_product_returning_with_no_other_field_changes_is_still_reactivated(comm
     # по факту is_published=False, а не только "заодно" с другой правкой.
     seller_id = insert_seller(committing_session, name="Ферма реактивация без правок")
     user_id = insert_user(committing_session, name="Admin")
+    photo_a = insert_photo(committing_session, s3_key="react2-a.jpg")
+    photo_b = insert_photo(committing_session, s3_key="react2-b.jpg")
     service = make_service(committing_session)
 
-    first = make_model(seller_id, [make_product(seller_name="A", price=10), make_product(seller_name="B", price=20)])
+    first = make_model(
+        seller_id,
+        [
+            make_product(seller_name="A", price=10, photo_ids=[photo_a]),
+            make_product(seller_name="B", price=20, photo_ids=[photo_b]),
+        ],
+    )
     service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
     kept, dropped = SellerProductRepository(committing_session).list_by_seller(seller_id)
 
-    second = make_model(seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10)])
+    second = make_model(
+        seller_id, [make_product(seller_product_id=kept.id, seller_name="A", price=10, photo_ids=[photo_a])]
+    )
     service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
 
     third = make_model(
         seller_id,
         [
-            make_product(seller_product_id=kept.id, seller_name="A", price=10),
-            make_product(seller_product_id=dropped.id, seller_name="B", price=20),
+            make_product(seller_product_id=kept.id, seller_name="A", price=10, photo_ids=[photo_a]),
+            make_product(seller_product_id=dropped.id, seller_name="B", price=20, photo_ids=[photo_b]),
         ],
     )
     result = service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
@@ -514,3 +541,113 @@ def test_republishing_with_only_photos_changed_still_counts_as_updated(committin
 
     assert result.updated_count == 1
     assert SellerProductPhotoRepository(committing_session).list_photo_ids(seller_product_id) == [photo_b]
+
+
+def test_product_without_photos_is_saved_but_not_published(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма без фото")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    model = make_model(seller_id, [make_product(seller_name="Огурец", price=10, photo_ids=[])])
+    service.publish(model, published_by=user_id, publication_key="nophoto-1", catalog_hash="nophoto-hash-1")
+
+    saved = SellerProductRepository(committing_session).list_by_seller(seller_id)[0]
+    assert saved.seller_name == "Огурец"
+    assert saved.is_published is False
+
+
+def test_result_names_products_hidden_because_photo_is_missing(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма частично без фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="hidden-a.jpg")
+    service = make_service(committing_session)
+
+    model = make_model(
+        seller_id,
+        [
+            make_product(seller_name="Яблоко", price=10, photo_ids=[photo]),
+            make_product(seller_name="Огурец", price=20, photo_ids=[]),
+            make_product(seller_name="Молоко", price=30, photo_ids=[]),
+        ],
+    )
+    result = service.publish(model, published_by=user_id, publication_key="nophoto-2", catalog_hash="nophoto-hash-2")
+
+    assert result.hidden_no_photo == ["Огурец", "Молоко"]
+
+
+def test_published_product_losing_its_photo_is_hidden_from_catalog(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма потеряла фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="lost.jpg")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(seller_name="Сыр", price=10, photo_ids=[photo])])
+    service.publish(first, published_by=user_id, publication_key="lost-1", catalog_hash="lost-hash-1")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id, [make_product(seller_product_id=seller_product_id, seller_name="Сыр", price=10, photo_ids=[])]
+    )
+    result = service.publish(second, published_by=user_id, publication_key="lost-2", catalog_hash="lost-hash-2")
+
+    assert SellerProductRepository(committing_session).find_by_id(seller_product_id).is_published is False
+    assert result.hidden_no_photo == ["Сыр"]
+
+
+def test_product_hidden_for_missing_photo_is_not_counted_as_deactivated(committing_session):
+    # deactivated считает строки, удалённые из книги. Скрытая из-за фото строка
+    # в книге осталась — путать эти два случая нельзя, иначе история публикаций врёт.
+    seller_id = insert_seller(committing_session, name="Ферма скрытые не деактивированы")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="notdeact.jpg")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(seller_name="Сыр", price=10, photo_ids=[photo])])
+    service.publish(first, published_by=user_id, publication_key="notdeact-1", catalog_hash="notdeact-hash-1")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id, [make_product(seller_product_id=seller_product_id, seller_name="Сыр", price=10, photo_ids=[])]
+    )
+    result = service.publish(second, published_by=user_id, publication_key="notdeact-2", catalog_hash="notdeact-hash-2")
+
+    assert result.deactivated_count == 0
+
+
+def test_product_gaining_photo_returns_to_catalog(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма вернула фото")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="regained.jpg")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(seller_name="Молоко", price=10, photo_ids=[])])
+    service.publish(first, published_by=user_id, publication_key="regain-1", catalog_hash="regain-hash-1")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id, [make_product(seller_product_id=seller_product_id, seller_name="Молоко", price=10, photo_ids=[photo])]
+    )
+    result = service.publish(second, published_by=user_id, publication_key="regain-2", catalog_hash="regain-hash-2")
+
+    assert SellerProductRepository(committing_session).find_by_id(seller_product_id).is_published is True
+    assert result.hidden_no_photo == []
+
+
+def test_product_staying_hidden_is_not_counted_as_updated_again(committing_session):
+    # Без этого «нет фото» вечно считалось бы изменением (_has_changed срабатывал
+    # на любой неопубликованной строке) и раздувало бы updated на каждой публикации.
+    seller_id = insert_seller(committing_session, name="Ферма стабильно скрытая")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(seller_name="Огурец", price=10, photo_ids=[])])
+    service.publish(first, published_by=user_id, publication_key="stable-1", catalog_hash="stable-hash-1")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id, [make_product(seller_product_id=seller_product_id, seller_name="Огурец", price=10, photo_ids=[])]
+    )
+    result = service.publish(second, published_by=user_id, publication_key="stable-2", catalog_hash="stable-hash-2")
+
+    assert result.updated_count == 0
+    assert result.hidden_no_photo == ["Огурец"]

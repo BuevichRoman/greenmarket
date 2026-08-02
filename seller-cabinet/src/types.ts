@@ -15,6 +15,9 @@ export interface PublicationSuccess {
   deactivated: number
   message: string
   mode: 'prod' | 'test'
+  // Названия товаров, сохранённых в каталог, но скрытых от покупателя из-за
+  // пустой колонки «Фото». Публикация при этом успешна.
+  hidden_no_photo: string[]
 }
 
 export interface ValidationErrorDetail {

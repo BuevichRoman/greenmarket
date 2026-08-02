@@ -67,6 +67,11 @@ class PublicationService:
             if not catalog_unchanged:
                 created, updated, deactivated = self._apply_catalog(model.products, seller_id)
 
+            # Считаем по входной книге, а не внутри _apply_catalog: продавец должен
+            # видеть список скрытых товаров и при повторной публикации без изменений,
+            # когда _apply_catalog вообще не вызывается.
+            hidden_no_photo = [product.seller_name for product in model.products if not product.photo_ids]
+
             new_version = self.catalog_publication_repository.latest_version(seller_id) + 1
             publication = self.catalog_publication_repository.create(
                 seller_id=seller_id,
@@ -96,6 +101,7 @@ class PublicationService:
                 publication_key=publication_key,
                 catalog_hash=catalog_hash,
                 mode=mode,
+                hidden_no_photo=hidden_no_photo,
             )
         except IntegrityError as exc:
             self.session.rollback()
@@ -138,6 +144,7 @@ class PublicationService:
                     stock=item.stock,
                     unit=item.unit,
                     description=item.description,
+                    is_published=bool(item.photo_ids),
                 )
                 self.seller_product_photo_repository.replace_for_product(seller_product.id, item.photo_ids)
                 created += 1
@@ -167,7 +174,9 @@ class PublicationService:
                 existing.stock = item.stock
                 existing.unit = item.unit
                 existing.description = item.description
-                existing.is_published = True
+                # Товар без фото сохраняется, но покупателю не показывается —
+                # каталог обязан быть с картинками (Catalog_Template.md).
+                existing.is_published = bool(item.photo_ids)
                 self.seller_product_photo_repository.replace_for_product(existing.id, item.photo_ids)
                 updated += 1
 
@@ -190,7 +199,9 @@ class PublicationService:
 
     def _has_changed(self, existing: SellerProduct, item: PublicationProduct, product_id: int | None) -> bool:
         return (
-            not existing.is_published
+            # Не «строка снята с публикации», а «её видимость должна измениться»:
+            # иначе строка без фото считалась бы изменённой на каждой публикации.
+            existing.is_published != bool(item.photo_ids)
             or existing.product_id != product_id
             or existing.seller_name != item.seller_name
             or float(existing.price) != item.price

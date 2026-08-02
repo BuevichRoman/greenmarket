@@ -109,12 +109,16 @@ class SemanticValidator:
         return errors
 
     def _validate_photos(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
+        # Пустое фото — не ошибка: строка сохраняется, но покупателю не показывается
+        # (PublicationService снимает её с публикации и возвращает в списке скрытых).
+        # Заполненное, но битое значение — по-прежнему ошибка: иначе мусор в ячейке
+        # молча приводил бы к тому же результату, что и осознанно пустая ячейка.
         if not value:
-            return [self._required_field_empty(sheet_name, row_number, "Фото")]
+            return []
 
         parts = [part.strip() for part in str(value).split(";") if part.strip()]
         if not parts:
-            return [self._required_field_empty(sheet_name, row_number, "Фото")]
+            return []
 
         photo_ids: list[int] = []
         for part in parts:

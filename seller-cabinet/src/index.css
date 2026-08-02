@@ -9,6 +9,8 @@
   --accent-bg: rgba(47, 125, 63, 0.08);
   --danger: #b3261e;
   --danger-bg: rgba(179, 38, 30, 0.08);
+  --warning: #8a5a00;
+  --warning-bg: rgba(138, 90, 0, 0.09);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 10px rgba(0, 0, 0, 0.04);
   --radius: 10px;
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -28,6 +30,8 @@
     --accent-bg: rgba(111, 207, 122, 0.12);
     --danger: #ff8a80;
     --danger-bg: rgba(255, 138, 128, 0.1);
+    --warning: #f0c070;
+    --warning-bg: rgba(240, 192, 112, 0.1);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
   }
 }
@@ -180,6 +184,32 @@ h1 {
   color: var(--text-muted);
   font-size: 0.85rem;
   margin: 0.5rem 0 0;
+}
+
+/* Публикация прошла, но часть товаров не видна покупателю — не ошибка, но и не
+   рядовая строка счётчика: выделено, чтобы продавец не пролистал мимо. */
+.hidden-no-photo {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.hidden-no-photo h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.hidden-no-photo ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.hidden-no-photo p {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
 }
 
 .data-table {

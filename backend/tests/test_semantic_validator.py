@@ -141,13 +141,15 @@ def test_empty_catalog_sheet_has_no_errors(session):
     assert result.is_valid
 
 
-def test_missing_photo_reports_error(session):
+def test_missing_photo_is_allowed(session):
+    # Пустое фото больше не ошибка — строка публикуется, но в каталог покупателя
+    # не попадает (is_published=False, см. PublicationService). Битый формат при
+    # этом остаётся ошибкой — тесты ниже.
     workbook = make_workbook([[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", ""]])
 
     result = make_validator(session).validate(workbook)
 
-    assert not result.is_valid
-    assert any(e.column == "Фото" for e in result.errors)
+    assert result.is_valid
 
 
 def test_non_numeric_photo_id_reports_error(session):

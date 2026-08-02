@@ -88,8 +88,9 @@ def create_publication(
         return error_response(500, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 
     logger.info(
-        "Публикация завершена: seller_id=%s publication_id=%s created=%s updated=%s deactivated=%s",
+        "Публикация завершена: seller_id=%s publication_id=%s created=%s updated=%s deactivated=%s hidden_no_photo=%s",
         access.seller_id, result.publication_id, result.created_count, result.updated_count, result.deactivated_count,
+        len(result.hidden_no_photo),
     )
     return PublicationResponse(
         success=result.success,
@@ -97,8 +98,20 @@ def create_publication(
         created=result.created_count,
         updated=result.updated_count,
         deactivated=result.deactivated_count,
-        message="Публикация выполнена успешно",
+        message=_publication_message(result.hidden_no_photo),
         mode=result.mode,
+        hidden_no_photo=result.hidden_no_photo,
+    )
+
+
+def _publication_message(hidden_no_photo: list[str]) -> str:
+    if not hidden_no_photo:
+        return "Публикация выполнена успешно"
+    # Явным текстом, а не счётчиком: товар без фото исчезает из каталога, и продавец
+    # должен понять это из самого сообщения, не сверяя список руками.
+    return (
+        f"Публикация выполнена. Не попали в каталог (нет фото): {', '.join(hidden_no_photo)}. "
+        "Добавьте фото и опубликуйте каталог заново."
     )
 
 
