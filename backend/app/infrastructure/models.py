@@ -92,3 +92,24 @@ class CatalogPublication(Base):
     created_count: Mapped[int] = mapped_column(Integer, default=0)
     updated_count: Mapped[int] = mapped_column(Integer, default=0)
     deactivated_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Administrator(Base):
+    """Учётная запись администратора GreenMarket (миграция 013).
+
+    В отличие от Seller — своя таблица GreenMarket, а не платформенная: роль
+    `users.id_role` намеренно не участвует в доступе. `user_id` нужен потому,
+    что `SellerProduct.moderator_id` — FK на `users(id_user)`.
+    """
+
+    __tablename__ = "Administrator"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean)
+    access_token: Mapped[str | None] = mapped_column(String(64))
+    activation_code: Mapped[str | None] = mapped_column(String(32))
+    activation_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

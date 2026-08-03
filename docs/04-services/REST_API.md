@@ -65,6 +65,12 @@ REST API первого этапа состоит из следующих раз
 
 Используется Admin Cabinet.
 
+**Аутентификация.** Все эндпоинты Admin API, кроме `POST /activate`, требуют заголовок `Authorization: Bearer <access_token>`. Токен в query-строке не принимается — в отличие от Seller API: query целиком пишется в access.log nginx, а права администратора шире (модерация всего каталога, а не одного продавца). Недействительный или отсутствующий токен — `401` с кодом `ADMIN_ACCESS_DENIED` (у продавца аналогичная ситуация даёт `403`: там токен идентифицирует уже известного продавца, здесь запрос просто неаутентифицирован).
+
+Механизм повторяет продавцовский (одноразовый код → постоянный токен), но опирается на собственную таблицу `Administrator` (миграция 013). Платформенная роль `users.id_role` в доступе намеренно не участвует: иначе выдача админских прав требовала бы изменения роли на стороне платформы. `Administrator.user_id` обязателен по другой причине — `SellerProduct.moderator_id` — FK на `users(id_user)`, без платформенного пользователя модерация не смогла бы записать своего автора.
+
+- `POST /api/v1/admin/activate` — обмен одноразового кода на постоянный токен. Тело `{"activation_code": str}`, ответ `{"access_token": str}`. Код одноразовый, с TTL (7 дней), выдаётся вне API (`scripts/issue_admin_activation_code.py <user_id>` — он же создаёт учётную запись администратора при первом вызове). Недействительный, просроченный, уже использованный код и отозванная учётка (`is_active = FALSE`) неразличимы в ответе — `400`, `INVALID_ACTIVATION_CODE`.
+- `GET /api/v1/admin/me` — кто вызывает: `{"admin_id": int, "user_id": int}`. Используется Admin Cabinet для проверки токена без побочных эффектов.
 - `GET/POST /api/v1/admin/product-groups`, `PUT /api/v1/admin/product-groups/{id}` — управление ProductGroup.
 - `GET/POST /api/v1/admin/products`, `PUT /api/v1/admin/products/{id}` — управление Product.
 - `GET /api/v1/admin/sellers`, `PUT /api/v1/admin/sellers/{id}/activate`, `PUT /api/v1/admin/sellers/{id}/deactivate` — управление продавцами.
