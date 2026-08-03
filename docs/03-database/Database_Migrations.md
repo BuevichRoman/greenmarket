@@ -26,7 +26,7 @@
 ## Порядок применения
 
 ```text
-001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012
+001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013
 ```
 
 Изменение порядка выполнения не допускается.
@@ -49,6 +49,7 @@
 | `010_alter_photo_add_seller.sql` | расширение таблицы `Photo` полем `seller_id` (трассируемость загрузки, не FK) |
 | `011_alter_seller_add_activation.sql` | расширение таблицы `Seller` полями авторизации продавца (`access_token`, `activation_code`, TTL кода, `spreadsheet_id`, `activated_at`) |
 | `012_alter_seller_products_default_false.sql` | `SellerProduct.is_published` — значение по умолчанию изменено с `TRUE` на `FALSE` (safety by default, см. [Publication_Model.md](../02-domain/Publication_Model.md), раздел «Видимость предложения в Buyer Catalog») |
+| `013_create_administrator.sql` | создание таблицы `Administrator` (учётная запись администратора GreenMarket: `activation_code` → `access_token`, см. [REST_API.md](../04-services/REST_API.md), раздел Admin API) |
 
 > **Примечание о нумерации.** Исходный план (Database_Migrations.md v1.0) содержал 001–006 и предполагал выполнение на пустой БД, где `Seller`, `User`, `Photo` — таблицы других доменных сервисов платформы, создаваемые отдельно. При первом реальном деплое на платформенную БД `aristotel_taxi` (сервер 104.171.133.95) выяснилось, что таких таблиц нет ни в одной среде. Решение: `Seller` — своя таблица GreenMarket (владелец Platform, ссылается на `aristotel_taxi.users`), `Photo` — своя временная таблица GreenMarket; `User` отдельной таблицей не заводится, соответствующие поля (`moderator_id`, `published_by`) ссылаются на `aristotel_taxi.users(id_user)` напрямую. Миграции 003–006 (исходная нумерация) сдвинуты на 005–008, добавлены новые 003 (`Seller`) и 004 (`Photo`).
 
