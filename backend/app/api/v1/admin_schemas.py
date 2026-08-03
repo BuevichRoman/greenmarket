@@ -12,3 +12,12 @@ class AdminActivationResponse(BaseModel):
 class AdminIdentityResponse(BaseModel):
     admin_id: int
     user_id: int
+
+
+class SellerOnboardingRequest(BaseModel):
+    user_id: int
+
+
+class SellerActivationCodeResponse(BaseModel):
+    seller_id: int
+    activation_code: str

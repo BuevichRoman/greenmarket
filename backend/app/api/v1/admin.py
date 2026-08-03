@@ -1,12 +1,21 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.admin.admin_access import AdminAccess, resolve_admin_access
 from app.admin.admin_activation import activate_admin
-from app.api.v1.admin_schemas import AdminActivationRequest, AdminActivationResponse, AdminIdentityResponse
+from app.admin.seller_onboarding import SellerAlreadyExistsError, UserNotFoundError, onboard_seller
+from app.api.v1.admin_schemas import (
+    AdminActivationRequest,
+    AdminActivationResponse,
+    AdminIdentityResponse,
+    SellerActivationCodeResponse,
+    SellerOnboardingRequest,
+)
 from app.api.v1.schemas import error_response
 from app.infrastructure.database import get_session
+from app.platform.seller_gateway import SellerGateway
+from app.publication.seller_activation import issue_activation_code
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -50,3 +59,64 @@ def me(access: AdminAccess | None = Depends(get_admin_access)) -> AdminIdentityR
     if access is None:
         return admin_access_denied()
     return AdminIdentityResponse(admin_id=access.admin_id, user_id=access.user_id)
+
+
+@router.post("/sellers", response_model=SellerActivationCodeResponse, status_code=201)
+def create_seller(
+    request: SellerOnboardingRequest,
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+) -> SellerActivationCodeResponse | JSONResponse:
+    """Подключить пользователя платформы как продавца: создать учётную запись
+    и выдать код активации одной операцией."""
+    if access is None:
+        return admin_access_denied()
+
+    try:
+        result = onboard_seller(request.user_id, session=session)
+    except UserNotFoundError as error:
+        return error_response(404, "USER_NOT_FOUND", str(error))
+    except SellerAlreadyExistsError as error:
+        return error_response(409, "SELLER_ALREADY_EXISTS", str(error))
+
+    session.commit()
+    return SellerActivationCodeResponse(seller_id=result.seller_id, activation_code=result.activation_code)
+
+
+@router.post("/sellers/{seller_id}/activation-code", response_model=SellerActivationCodeResponse)
+def reissue_activation_code(
+    seller_id: int,
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+) -> SellerActivationCodeResponse | JSONResponse:
+    """Перевыпустить код активации — продавец потерял код или не успел
+    воспользоваться им до истечения TTL. Предыдущий код перестаёт действовать."""
+    if access is None:
+        return admin_access_denied()
+
+    activation_code = issue_activation_code(seller_id, session=session)
+    if activation_code is None:
+        return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
+
+    session.commit()
+    return SellerActivationCodeResponse(seller_id=seller_id, activation_code=activation_code)
+
+
+@router.delete("/sellers/{seller_id}/activation-code", status_code=204)
+def revoke_activation_code(
+    seller_id: int,
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+):
+    """Отозвать невостребованный код активации. Уже выданный рабочий токен не
+    трогает — это другая операция (деактивация продавца)."""
+    if access is None:
+        return admin_access_denied()
+
+    gateway = SellerGateway(session)
+    if gateway.get_status(seller_id) is None:
+        return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
+
+    gateway.clear_activation_code(seller_id)
+    session.commit()
+    return Response(status_code=204)

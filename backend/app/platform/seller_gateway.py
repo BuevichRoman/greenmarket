@@ -96,6 +96,41 @@ class SellerGateway:
         rows = self.session.execute(stmt, {"seller_ids": seller_ids}).all()
         return {row[0]: row[1] for row in rows}
 
+    def user_exists(self, user_id: int) -> bool:
+        """Существует ли пользователь платформы. FK не даст создать Seller на
+        несуществующего, но проверка нужна раньше — чтобы админ получил
+        человеческий ответ, а не ошибку целостности из драйвера."""
+        return (
+            self.session.execute(
+                text("SELECT 1 FROM users WHERE id_user = :user_id"), {"user_id": user_id}
+            ).first()
+            is not None
+        )
+
+    def find_seller_id_by_user(self, user_id: int) -> int | None:
+        row = self.session.execute(
+            text("SELECT id FROM Seller WHERE user_id = :user_id"), {"user_id": user_id}
+        ).first()
+        return None if row is None else row[0]
+
+    def create(self, user_id: int) -> int:
+        """Заводит учётную запись продавца. Раньше строку Seller можно было
+        создать только руками через SQL — единственные INSERT'ы жили в
+        демо-сидерах, то есть боевой онбординг требовал доступа к серверу."""
+        return self.session.execute(
+            text("INSERT INTO Seller (user_id, is_active, created_at, updated_at) VALUES (:user_id, TRUE, NOW(), NOW())"),
+            {"user_id": user_id},
+        ).lastrowid
+
+    def clear_activation_code(self, seller_id: int) -> None:
+        self.session.execute(
+            text(
+                "UPDATE Seller SET activation_code = NULL, activation_code_expires_at = NULL "
+                "WHERE id = :seller_id"
+            ),
+            {"seller_id": seller_id},
+        )
+
     def find_by_activation_code(self, activation_code: str) -> ActivationLookup | None:
         row = self.session.execute(
             text("SELECT id, activation_code_expires_at FROM Seller WHERE activation_code = :code"),
