@@ -8,7 +8,10 @@ from app.infrastructure.repositories.catalog_publication_repository import Catal
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.infrastructure.repositories.seller_product_photo_repository import SellerProductPhotoRepository
-from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
+from app.infrastructure.repositories.seller_product_repository import (
+    SellerProductRepository,
+    moderation_status_for,
+)
 from app.mapping.publication_model import PublicationModel, PublicationProduct
 from app.platform.seller_gateway import SellerGateway
 from app.publication.errors import DuplicatePublicationError, PublicationConflictError
@@ -160,11 +163,13 @@ class PublicationService:
             photos_changed = existing_photo_ids_by_id.get(existing.id, []) != item.photo_ids
             if self._has_changed(existing, item, product_id) or photos_changed:
                 if existing.product_id != product_id:
-                    # Смена товарной позиции — новая заявка на классификацию
-                    # (docs/02-domain/Catalog_Template.md, "Изменение товарной
-                    # позиции GreenMarket"): предыдущее решение модератора
-                    # больше не относится к новой позиции.
-                    existing.moderation_status = "WAIT_PRODUCT"
+                    # Смена товарной позиции: предыдущее решение модератора
+                    # больше не относится к новой позиции (docs/02-domain/
+                    # Catalog_Template.md, "Изменение товарной позиции
+                    # GreenMarket"). Новый статус выводится из самой позиции —
+                    # выбранная продавцом позиция классифицирует товар, пустая
+                    # возвращает его в очередь модерации.
+                    existing.moderation_status = moderation_status_for(product_id)
                     existing.moderator_id = None
                     existing.moderated_at = None
                     existing.moderation_comment = None

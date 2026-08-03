@@ -119,6 +119,32 @@ def test_count_published_returns_zero_for_seller_without_products(session):
     assert SellerProductRepository(session).count_published(seller_id) == 0
 
 
+def test_create_marks_classified_product_as_resolved(session):
+    """Модерация Stage 1 — это классификация (привязка к справочнику Product).
+    Продавец выбрал позицию сам, значит модератору тут делать нечего."""
+    group_id = insert_product_group(session, name="Группа для статуса модерации")
+    product_id = insert_product(session, group_id=group_id, name="Товар для статуса модерации")
+    seller_id = insert_seller(session, name="Продавец классифицированного товара")
+
+    created = SellerProductRepository(session).create(
+        seller_id=seller_id, product_id=product_id, seller_name="Классифицирован",
+        price=1, stock=1, unit="шт", description=None, is_published=True,
+    )
+
+    assert created.moderation_status == "RESOLVED"
+
+
+def test_create_puts_unclassified_product_into_moderation_queue(session):
+    seller_id = insert_seller(session, name="Продавец неклассифицированного товара")
+
+    created = SellerProductRepository(session).create(
+        seller_id=seller_id, product_id=None, seller_name="Без позиции",
+        price=1, stock=1, unit="шт", description=None, is_published=True,
+    )
+
+    assert created.moderation_status == "WAIT_PRODUCT"
+
+
 def test_insert_without_visibility_leaves_product_hidden_from_buyers(session):
     """Safety by default: неполная вставка (мимо репозитория — руками, миграцией,
     будущим кодом) не должна приводить к публикации товара покупателю."""
