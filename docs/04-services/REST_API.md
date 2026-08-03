@@ -56,7 +56,7 @@ REST API первого этапа состоит из следующих раз
 
 Используется Seller Cabinet (и Apps Script карточки товара — обмен `activation_code` на `access_token`, см. `apps_script/product_card/`).
 
-- `POST /api/v1/seller/activate` — первичная привязка персональной копии Google Sheets к продавцу. Тело `{"activation_code": str, "spreadsheet_id": str}`. Ответ — `{"access_token": str}`, который клиент сохраняет и в дальнейшем передаёт как обычный `access_token` во все остальные Seller/Publication-эндпоинты. Код активации одноразовый, с TTL (7 дней), выдаётся администратором вне API (`scripts/issue_activation_code.py`) — самостоятельной регистрации нет, `Seller.user_id` обязан ссылаться на уже существующего пользователя платформы (см. `Seller_Profile.md`, `003_create_seller.sql`).
+- `POST /api/v1/seller/activate` — первичная привязка персональной копии Google Sheets к продавцу. Тело `{"activation_code": str, "spreadsheet_id": str}`. Ответ — `{"access_token": str}`, который клиент сохраняет и в дальнейшем передаёт как обычный `access_token` во все остальные Seller/Publication-эндпоинты. Код активации одноразовый, с TTL (7 дней), выдаётся администратором через `POST /api/v1/admin/sellers` (см. Admin API) — самостоятельной регистрации нет, `Seller.user_id` обязан ссылаться на уже существующего пользователя платформы (см. `Seller_Profile.md`, `003_create_seller.sql`).
 - `GET /api/v1/seller/catalog?access_token=...` — статус-сводка продавца (`is_active`, `current_catalog_version`, `published_product_count`, `last_published_at`), не построчный список товаров.
 - `GET /api/v1/seller/catalog/template` — шаблон Excel. Не реализовано — актуальный источник шаблона (CR-001) — статическая Google-таблица, не Excel-файл через API.
 - `GET /api/v1/seller/catalog/errors` — ошибки последней публикации. Не реализовано — ошибки сейчас возвращаются синхронно в ответе `POST /publications`, отдельный запрос не требовался.
@@ -71,10 +71,13 @@ REST API первого этапа состоит из следующих раз
 
 - `POST /api/v1/admin/activate` — обмен одноразового кода на постоянный токен. Тело `{"activation_code": str}`, ответ `{"access_token": str}`. Код одноразовый, с TTL (7 дней), выдаётся вне API (`scripts/issue_admin_activation_code.py <user_id>` — он же создаёт учётную запись администратора при первом вызове). Недействительный, просроченный, уже использованный код и отозванная учётка (`is_active = FALSE`) неразличимы в ответе — `400`, `INVALID_ACTIVATION_CODE`.
 - `GET /api/v1/admin/me` — кто вызывает: `{"admin_id": int, "user_id": int}`. Используется Admin Cabinet для проверки токена без побочных эффектов.
-- `GET/POST /api/v1/admin/product-groups`, `PUT /api/v1/admin/product-groups/{id}` — управление ProductGroup.
-- `GET/POST /api/v1/admin/products`, `PUT /api/v1/admin/products/{id}` — управление Product.
-- `GET /api/v1/admin/sellers`, `PUT /api/v1/admin/sellers/{id}/activate`, `PUT /api/v1/admin/sellers/{id}/deactivate` — управление продавцами.
-- `GET /api/v1/admin/moderation`, `PUT /api/v1/admin/moderation/{id}` — очередь модерации (обработка SellerProduct без связи с Product).
+- `GET/POST /api/v1/admin/product-groups`, `PUT /api/v1/admin/product-groups/{id}` — управление ProductGroup. Не реализовано.
+- `GET/POST /api/v1/admin/products`, `PUT /api/v1/admin/products/{id}` — управление Product. Не реализовано.
+- `POST /api/v1/admin/sellers` — **подключить пользователя платформы как продавца**. Тело `{"user_id": int}`, ответ `201` — `{"seller_id": int, "activation_code": str}`. Одна бизнес-операция: проверяет пользователя, создаёт `Seller`, выдаёт код активации. Рабочий токен не выдаётся — продавец получает его сам через `POST /api/v1/seller/activate`. Ошибки: `404` `USER_NOT_FOUND` (нет такого пользователя платформы), `409` `SELLER_ALREADY_EXISTS` (продавец уже подключён; `seller_id` существующего указан в сообщении, чтобы админ мог перевыпустить код).
+- `POST /api/v1/admin/sellers/{id}/activation-code` — перевыпустить код активации (продавец потерял код или не успел до истечения TTL). Предыдущий код перестаёт действовать. Ответ — `{"seller_id": int, "activation_code": str}`, `404` `SELLER_NOT_FOUND`.
+- `DELETE /api/v1/admin/sellers/{id}/activation-code` — отозвать невостребованный код. Ответ `204`. Уже выданный рабочий токен не трогает — это другая операция (деактивация продавца).
+- `GET /api/v1/admin/sellers`, `PUT /api/v1/admin/sellers/{id}/activate`, `PUT /api/v1/admin/sellers/{id}/deactivate` — управление продавцами. Не реализовано.
+- `GET /api/v1/admin/moderation`, `PUT /api/v1/admin/moderation/{id}` — очередь модерации (обработка SellerProduct без связи с Product). Не реализовано.
 
 ## System API
 
