@@ -5,6 +5,18 @@ from sqlalchemy.orm import Session
 from app.infrastructure.models import SellerProduct
 
 
+def moderation_status_for(product_id: int | None) -> str:
+    """Модерация Stage 1 — классификация: очередь модерации состоит из
+    предложений без связи с Product (docs/02-domain/Catalog_Model.md,
+    docs/05-ui/Admin_MVP.md). Отсюда инвариант: WAIT_PRODUCT ⟺ product_id IS NULL.
+
+    Раньше статус жёстко ставился в WAIT_PRODUCT всем новым строкам, включая те,
+    где продавец выбрал позицию из справочника корректно — статус существовал,
+    но ничего не значил.
+    """
+    return "WAIT_PRODUCT" if product_id is None else "RESOLVED"
+
+
 class SellerProductRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -61,7 +73,7 @@ class SellerProductRepository:
             unit=unit,
             description=description,
             is_published=is_published,
-            moderation_status="WAIT_PRODUCT",
+            moderation_status=moderation_status_for(product_id),
             created_at=now,
             updated_at=now,
         )
