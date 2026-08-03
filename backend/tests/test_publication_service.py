@@ -326,17 +326,47 @@ def test_changing_product_position_resets_moderation_status(committing_session):
     unchanged = SellerProductRepository(committing_session).find_by_id(seller_product_id)
     assert unchanged.moderation_status == "RESOLVED"
 
-    # Товарная позиция сменилась (None -> реальный Product) — заявка на классификацию новая.
+    # Товарная позиция сменилась (None -> реальный Product): продавец сам выбрал
+    # позицию из справочника, то есть товар классифицирован — модератору тут
+    # делать нечего. Прежняя отметка модератора к новой позиции не относится.
     third = make_model(
         seller_id,
         [make_product(seller_product_id=seller_product_id, group="Тестовая группа модерации", name="Тестовый товар модерации", price=15)],
     )
     service.publish(third, published_by=user_id, publication_key="key-3", catalog_hash="hash-3")
     reclassified = SellerProductRepository(committing_session).find_by_id(seller_product_id)
-    assert reclassified.moderation_status == "WAIT_PRODUCT"
+    assert reclassified.moderation_status == "RESOLVED"
     assert reclassified.moderator_id is None
     assert reclassified.moderated_at is None
     assert reclassified.moderation_comment is None
+
+
+def test_clearing_product_position_returns_product_to_moderation_queue(committing_session):
+    """Обратное направление: продавец убрал товарную позицию — предложение
+    перестало быть классифицированным и возвращается в очередь модерации."""
+    seller_id = insert_seller(committing_session, name="Ферма разклассификации")
+    user_id = insert_user(committing_session, name="Admin")
+    group_id = insert_product_group(committing_session, name="Группа разклассификации")
+    insert_product(committing_session, product_group_id=group_id, name="Товар разклассификации")
+    service = make_service(committing_session)
+
+    first = make_model(
+        seller_id,
+        [make_product(group="Группа разклассификации", name="Товар разклассификации", price=10)],
+    )
+    service.publish(first, published_by=user_id, publication_key="key-1", catalog_hash="hash-1")
+    seller_product = SellerProductRepository(committing_session).list_by_seller(seller_id)[0]
+    assert seller_product.moderation_status == "RESOLVED"
+
+    second = make_model(
+        seller_id,
+        [make_product(seller_product_id=seller_product.id, group="Группа разклассификации", price=10)],
+    )
+    service.publish(second, published_by=user_id, publication_key="key-2", catalog_hash="hash-2")
+
+    unclassified = SellerProductRepository(committing_session).find_by_id(seller_product.id)
+    assert unclassified.product_id is None
+    assert unclassified.moderation_status == "WAIT_PRODUCT"
 
 
 def test_publish_logs_start_and_success(committing_session, caplog):
