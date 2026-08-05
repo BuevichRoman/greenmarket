@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.admin import router as admin_router
 from app.api.v1.admin_catalog import router as admin_catalog_router
+from app.api.v1.admin_moderation import router as admin_moderation_router
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.photos import router as photos_router
 from app.api.v1.publications import router as publications_router
@@ -30,6 +31,7 @@ app.include_router(seller_router)
 app.include_router(photos_router)
 app.include_router(admin_router)
 app.include_router(admin_catalog_router)
+app.include_router(admin_moderation_router)
 
 
 @app.exception_handler(RequestValidationError)

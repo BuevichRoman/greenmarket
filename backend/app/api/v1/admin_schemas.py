@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -90,6 +91,45 @@ class ProductCreateRequest(BaseModel):
     product_group_id: int
     name: str = Field(min_length=1, max_length=150)
     description: str | None = None
+
+
+class ModerationQueueItem(BaseModel):
+    """Позиция очереди. `name` — наименование товара, как его дал продавец
+    (столбец `SellerProduct.seller_name`), `seller_name` — имя самого продавца,
+    как в Catalog API: в БД эти два смысла носят похожие названия."""
+
+    seller_product_id: int
+    seller_id: int
+    seller_name: str
+    name: str
+    description: str | None
+    price: Decimal
+    unit: str
+    is_published: bool
+    moderation_status: str
+    created_at: datetime
+    photos: list[str]
+
+
+class ModerationQueueResponse(BaseModel):
+    items: list[ModerationQueueItem]
+    page: int
+    limit: int
+    total: int
+
+
+class ModerationResolveRequest(BaseModel):
+    product_id: int
+    comment: str | None = None
+
+
+class ModerationResolveResponse(BaseModel):
+    seller_product_id: int
+    product_id: int
+    moderation_status: str
+    moderator_id: int
+    moderated_at: datetime
+    moderation_comment: str | None
 
 
 class ProductUpdateRequest(BaseModel):
