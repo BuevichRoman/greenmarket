@@ -13,7 +13,7 @@ relationship().
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.database import Base
@@ -27,8 +27,10 @@ class ProductGroup(Base):
     name: Mapped[str] = mapped_column(String(100))
     sort_order: Mapped[int] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    # server_default повторяет DEFAULT CURRENT_TIMESTAMP из миграций 001/002:
+    # без него ORM подставляет в INSERT явный NULL и падает на NOT NULL.
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     parent: Mapped["ProductGroup | None"] = relationship(remote_side=[id], back_populates="children")
     children: Mapped[list["ProductGroup"]] = relationship(back_populates="parent")
@@ -43,8 +45,8 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(150))
     description: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     group: Mapped["ProductGroup"] = relationship(back_populates="products")
 
