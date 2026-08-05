@@ -15,7 +15,7 @@
 # ENV_FILE, MIGRATIONS_DIR, MYSQL_BIN.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/backend/.env}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-$REPO_ROOT/database/migrations}"
