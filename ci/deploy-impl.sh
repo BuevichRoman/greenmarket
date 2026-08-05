@@ -5,6 +5,9 @@
 # который её вызывает).
 set -euo pipefail
 
+echo "=== Migrations ==="
+bash /opt/greenmarket/ci/apply-migrations.sh
+
 echo "=== Backend ==="
 cd /opt/greenmarket/backend
 /root/.local/bin/uv sync
