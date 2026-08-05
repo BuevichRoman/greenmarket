@@ -151,13 +151,19 @@ def test_find_by_access_token_returns_none_for_unknown_token(session):
     assert SellerGateway(session).find_by_access_token("does-not-exist") is None
 
 
-def test_find_by_access_token_returns_none_for_inactive_seller(session):
-    seller_id = insert_seller(session, name="Неактивный продавец с токеном", publication_key=None, catalog_hash=None)
+def test_find_by_access_token_ignores_deactivation(session):
+    """Деактивированный продавец продолжает работать в кабинете и публиковать;
+    от покупателей его каталог прячет отдельный фильтр (list_active_seller_ids)."""
+    seller_id = insert_seller(session, name="Деактивированный продавец с токеном", publication_key=None, catalog_hash=None)
     gateway = SellerGateway(session)
     gateway.set_access_token(seller_id, access_token="tok-inactive", spreadsheet_id="sheet-x")
     session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
 
-    assert gateway.find_by_access_token("tok-inactive") is None
+    access = gateway.find_by_access_token("tok-inactive")
+
+    assert access is not None
+    assert access.seller_id == seller_id
+    assert gateway.list_active_seller_ids([seller_id]) == set()
 
 
 def test_find_by_access_token_returns_seller_name_from_users(session):

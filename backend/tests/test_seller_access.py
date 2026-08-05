@@ -30,8 +30,16 @@ def test_unknown_token_resolves_to_none(session):
     assert resolve_seller_access("tok-does-not-exist", session) is None
 
 
-def test_inactive_seller_resolves_to_none(session):
-    seller_id = insert_seller(session, name="Неактивная ферма", access_token="tok-inactive")
+def test_deactivated_seller_still_resolves(session):
+    """Временная деактивация скрывает каталог от покупателей, но не отключает
+    самого продавца: он продолжает работать в кабинете и публиковать
+    (решение коллеги от 2026-08-05, Admin_MVP.md «Временная деактивация»).
+    Видимость покупателю фильтруется отдельно — SellerGateway.list_active_seller_ids.
+    """
+    seller_id = insert_seller(session, name="Деактивированная ферма", access_token="tok-inactive")
     session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
 
-    assert resolve_seller_access("tok-inactive", session) is None
+    access = resolve_seller_access("tok-inactive", session)
+
+    assert access is not None
+    assert access.seller_id == seller_id
