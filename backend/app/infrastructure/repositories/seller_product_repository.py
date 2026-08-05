@@ -38,6 +38,20 @@ class SellerProductRepository:
             .count()
         )
 
+    def list_awaiting_moderation(self, *, page: int, limit: int) -> tuple[list[SellerProduct], int]:
+        """Очередь модерации — предложения без связи с Product (Admin_MVP.md,
+        экран 3). Фильтр по product_id, а не по moderation_status: статус
+        выводится из связи, а не наоборот (см. moderation_status_for)."""
+        query = self.session.query(SellerProduct).filter(SellerProduct.product_id.is_(None))
+        total = query.count()
+        items = (
+            query.order_by(SellerProduct.created_at, SellerProduct.id)
+            .offset((page - 1) * limit)
+            .limit(limit)
+            .all()
+        )
+        return items, total
+
     def list_published_for_products(self, product_ids: list[int]) -> list[SellerProduct]:
         if not product_ids:
             return []
