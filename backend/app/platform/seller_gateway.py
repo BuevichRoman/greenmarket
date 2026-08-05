@@ -24,6 +24,24 @@ class SellerAccessRow:
     name: str
 
 
+@dataclass(frozen=True)
+class SellerListRow:
+    """Основная информация о продавце для Admin Cabinet (Admin_MVP.md, экран 4).
+
+    `activated_at` и `activation_code_expires_at` вместе отвечают на вопрос, на
+    каком шаге подключения продавец: код выдан, но не обменян — ждём продавца;
+    `activated_at` заполнен — работает.
+    """
+
+    seller_id: int
+    user_id: int
+    name: str
+    is_active: bool
+    current_catalog_version: int
+    activated_at: datetime | None
+    activation_code_expires_at: datetime | None
+
+
 class SellerGateway:
     """Читает минимально необходимые платформенные данные Seller напрямую из БД.
 
@@ -121,6 +139,43 @@ class SellerGateway:
             text("INSERT INTO Seller (user_id, is_active, created_at, updated_at) VALUES (:user_id, TRUE, NOW(), NOW())"),
             {"user_id": user_id},
         ).lastrowid
+
+    _LIST_COLUMNS = (
+        "SELECT s.id, s.user_id, u.name, s.is_active, s.current_catalog_version, "
+        "s.activated_at, s.activation_code_expires_at "
+        "FROM Seller s JOIN users u ON u.id_user = s.user_id "
+    )
+
+    @staticmethod
+    def _to_list_row(row) -> SellerListRow:
+        return SellerListRow(
+            seller_id=row[0],
+            user_id=row[1],
+            name=row[2],
+            is_active=bool(row[3]),
+            current_catalog_version=row[4] or 0,
+            activated_at=row[5],
+            activation_code_expires_at=row[6],
+        )
+
+    def list_all(self) -> list[SellerListRow]:
+        rows = self.session.execute(text(self._LIST_COLUMNS + "ORDER BY s.id")).all()
+        return [self._to_list_row(row) for row in rows]
+
+    def find_list_row(self, seller_id: int) -> SellerListRow | None:
+        row = self.session.execute(
+            text(self._LIST_COLUMNS + "WHERE s.id = :seller_id"), {"seller_id": seller_id}
+        ).first()
+        return None if row is None else self._to_list_row(row)
+
+    def set_active(self, seller_id: int, *, is_active: bool) -> None:
+        """Временная деактивация и возврат в активное состояние. Каталог, его
+        публикации и SellerProduct не трогаются — скрывается только видимость
+        покупателю (Admin_MVP.md, «Временная деактивация»)."""
+        self.session.execute(
+            text("UPDATE Seller SET is_active = :is_active, updated_at = NOW() WHERE id = :seller_id"),
+            {"is_active": is_active, "seller_id": seller_id},
+        )
 
     def clear_activation_code(self, seller_id: int) -> None:
         self.session.execute(
