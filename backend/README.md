@@ -6,7 +6,7 @@ PR-004 — Validator. PR-005 — Mapper. PR-006 — Publication Service (пер�
 
 ## MySQL
 
-Нужна MySQL 8.0.16+ с уже применённой схемой из `../database/migrations/001-006`
+Нужна MySQL 8.0.16+ с применённой схемой из `../database/migrations/`
 (+ платформенные таблицы Seller/User/Photo — на реальном окружении это
 iBronevik, локально — см. `docs/03-database/Physical_Model.md` про их состав).
 Пример через Docker:
@@ -18,9 +18,21 @@ docker run -d --name greenmarket-mysql \
 
 Затем применить по порядку: стаб платформенных таблиц (Seller/User/Photo,
 только для dev/CI, не часть продукта, см. `tests/fixtures/platform_stub.sql`)
-→ `../database/migrations/00{1..8}_*.sql` → `../database/seeders/00{1..4}_*.sql`
-(`003`/`004` — демо-продавцы и предложения для Catalog API, см.
-`docs/03-database/Database_Migrations.md`, раздел Seed Data).
+→ миграции → `../database/seeders/00{1..4}_*.sql` (`003`/`004` — демо-продавцы
+и предложения для Catalog API, см. `docs/03-database/Database_Migrations.md`,
+раздел Seed Data).
+
+Миграции накатываются скриптом — он читает подключение из этого же `.env` и
+применяет только те файлы, которых ещё нет в схеме (учёт в таблице
+`SchemaMigration`), поэтому повторный запуск безопасен:
+
+```bash
+../ci/apply-migrations.sh
+```
+
+Если клиента `mysql` на машине нет (например, MySQL поднята только в Docker),
+путь к нему задаётся переменной `MYSQL_BIN` — например обёрткой вида
+`docker exec -i -e MYSQL_PWD greenmarket-mysql mysql "$@"`.
 
 ## Переменные окружения
 
