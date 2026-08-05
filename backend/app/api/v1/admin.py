@@ -10,7 +10,9 @@ from app.api.v1.admin_schemas import (
     AdminActivationResponse,
     AdminIdentityResponse,
     SellerActivationCodeResponse,
+    SellerListResponse,
     SellerOnboardingRequest,
+    SellerSummary,
 )
 from app.api.v1.schemas import error_response
 from app.infrastructure.database import get_session
@@ -81,6 +83,56 @@ def create_seller(
 
     session.commit()
     return SellerActivationCodeResponse(seller_id=result.seller_id, activation_code=result.activation_code)
+
+
+@router.get("/sellers", response_model=SellerListResponse)
+def list_sellers(
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+) -> SellerListResponse | JSONResponse:
+    """Список подключённых продавцов с основной информацией (Admin_MVP.md,
+    экран 4). Без него администратор создаёт продавца и теряет его из виду."""
+    if access is None:
+        return admin_access_denied()
+
+    rows = SellerGateway(session).list_all()
+    return SellerListResponse(sellers=[SellerSummary(**vars(row)) for row in rows])
+
+
+def _set_seller_active(seller_id: int, *, is_active: bool, session: Session) -> SellerSummary | JSONResponse:
+    gateway = SellerGateway(session)
+    if gateway.find_list_row(seller_id) is None:
+        return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
+
+    gateway.set_active(seller_id, is_active=is_active)
+    session.commit()
+    return SellerSummary(**vars(gateway.find_list_row(seller_id)))
+
+
+@router.put("/sellers/{seller_id}/activate", response_model=SellerSummary)
+def activate_seller(
+    seller_id: int,
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+) -> SellerSummary | JSONResponse:
+    """Вернуть продавца в активное состояние. Последняя опубликованная версия
+    каталога снова доступна покупателям без повторной публикации."""
+    if access is None:
+        return admin_access_denied()
+    return _set_seller_active(seller_id, is_active=True, session=session)
+
+
+@router.put("/sellers/{seller_id}/deactivate", response_model=SellerSummary)
+def deactivate_seller(
+    seller_id: int,
+    access: AdminAccess | None = Depends(get_admin_access),
+    session: Session = Depends(get_session),
+) -> SellerSummary | JSONResponse:
+    """Временная деактивация: каталог скрывается от покупателей, публикации,
+    SellerProduct и история сохраняются."""
+    if access is None:
+        return admin_access_denied()
+    return _set_seller_active(seller_id, is_active=False, session=session)
 
 
 @router.post("/sellers/{seller_id}/activation-code", response_model=SellerActivationCodeResponse)
