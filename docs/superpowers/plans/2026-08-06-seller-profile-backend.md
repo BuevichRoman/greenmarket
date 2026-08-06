@@ -74,6 +74,7 @@ users_prop_roles_edit(id_users_prop INT, id_role INT, PK(id_users_prop, id_role)
 - `backend/app/profile/__init__.py`
 - `backend/app/profile/fields.py` — определение полей профиля (имя поля → `var` свойства → тип значения → лимит длины). Единый источник для всех потребителей. Коды типов значений (`VALUE_TYPE_VARCHAR`/`VALUE_TYPE_TEXT`) объявлены не здесь, а в `user_prop_gateway.py`: это знание платформы (`users_prop.value_type` — FK на её словарь `field_type`), и зависимость идёт от продукта к ACL, а не наоборот.
 - `backend/app/profile/seller_profile_service.py` — чтение профиля, применение изменений, запись журнала.
+- `backend/app/profile/errors.py` — именованные исключения профиля (`UnknownProfileFieldError`, `ProfileValueTooLongError`, `SellerNotFoundError`) по образцу `app/publication/errors.py`. Заведены после ревью Task 6: без них до эндпоинта доезжали четыре разных состояния под одним `LookupError` — плохое поле от клиента (400), отсутствующий продавец (404) и два признака ненастроенного окружения из гейтвея (500). Плюс `KeyError` и `IndexError` сами наследуют `LookupError`, так что обычный баг доложился бы пользователю как «продавец не найден».
 - `backend/app/infrastructure/repositories/seller_profile_change_repository.py` — журнал.
 - `backend/app/api/v1/admin_profile.py` — админская правка профиля и лента изменений (в `admin.py` не дописываем — там уже онбординг и справочники, файл разделён по темам: `admin_catalog.py`, `admin_moderation.py`).
 - `backend/tests/test_user_prop_gateway.py`
@@ -908,7 +909,8 @@ git commit -m "feat: журнал изменений профиля продав
 Дописать в `backend/tests/test_seller_profile_service.py`:
 
 ```python
-from app.profile.seller_profile_service import SellerProfileService, UnknownProfileFieldError
+from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.seller_profile_service import SellerProfileService
 
 
 def test_read_returns_all_fields_as_none_for_empty_profile(session, seller):
@@ -1376,7 +1378,8 @@ from app.api.v1.seller_schemas import (
     SellerProfileUpdateResponse,
     SellerStatusResponse,
 )
-from app.profile.seller_profile_service import SellerProfileService, UnknownProfileFieldError
+from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.seller_profile_service import SellerProfileService
 
 
 def _profile_response(seller_id: int, name: str, session: Session) -> SellerProfileResponse | JSONResponse:
@@ -1428,9 +1431,7 @@ def update_seller_profile(
             author_user_id=access.published_by,
             author_role="SELLER",
         )
-    except UnknownProfileFieldError as exc:
-        return error_response(422, "VALIDATION_ERROR", str(exc))
-    except ValueError as exc:
+    except (UnknownProfileFieldError, ProfileValueTooLongError) as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     session.commit()
@@ -1674,7 +1675,8 @@ from app.infrastructure.repositories.seller_profile_change_repository import (
     SellerProfileChangeRepository,
 )
 from app.platform.seller_gateway import SellerGateway
-from app.profile.seller_profile_service import SellerProfileService, UnknownProfileFieldError
+from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.seller_profile_service import SellerProfileService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -1699,9 +1701,7 @@ def update_seller_profile(
             author_user_id=access.user_id,
             author_role="ADMIN",
         )
-    except UnknownProfileFieldError as exc:
-        return error_response(422, "VALIDATION_ERROR", str(exc))
-    except ValueError as exc:
+    except (UnknownProfileFieldError, ProfileValueTooLongError) as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     session.commit()
