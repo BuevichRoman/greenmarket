@@ -29,14 +29,17 @@ def insert_seller(session, *, name: str) -> tuple[int, int]:
 def admin_headers(session, client, *, name: str) -> tuple[dict[str, str], int]:
     """Настоящий админский токен, а не подмена get_admin_access: подмена скрыла
     бы и разбор заголовка, и то, чей именно user_id доезжает до журнала."""
+    # Журнал пишет платформенный users.id_user, а не Administrator.id, и
+    # отличить одно от другого тест может только если значения разные. На
+    # свежей базе (platform_stub.sql не сидит ни одного пользователя) оба
+    # счётчика стартуют с единицы, и у первого же администратора id совпал бы
+    # с user_id — подмена одного другим тогда не ловится ничем. Лишняя строка
+    # в users уводит счётчики врозь по построению, а не по везению.
+    insert_user(session, name=f"{name} (сдвиг счётчика users)")
     user_id = insert_user(session, name=name)
     admin_id = session.execute(
         text("INSERT INTO Administrator (user_id) VALUES (:user_id)"), {"user_id": user_id}
     ).lastrowid
-    # Журнал пишет платформенный users.id_user, а не Administrator.id — тест
-    # различает их только если значения разные (на практике разные всегда:
-    # таблицы наполняются независимо).
-    assert admin_id != user_id
     code = issue_admin_activation_code(admin_id, session=session)
     token = client.post("/api/v1/admin/activate", json={"activation_code": code}).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}, user_id
