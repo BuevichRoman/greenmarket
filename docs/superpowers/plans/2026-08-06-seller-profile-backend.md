@@ -909,7 +909,7 @@ git commit -m "feat: журнал изменений профиля продав
 Дописать в `backend/tests/test_seller_profile_service.py`:
 
 ```python
-from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.errors import ProfileValidationError
 from app.profile.seller_profile_service import SellerProfileService
 
 
@@ -1347,7 +1347,16 @@ class SellerProfileUpdateRequest(BaseModel):
     пустая строка — «очистить». Поэтому у всех полей значение по умолчанию
     `None` и отличить «не прислали» от «прислали null» невозможно — для
     очистки форма присылает пустую строку.
+
+    `extra="forbid"` добавлен после ревью Task 7. По умолчанию Pydantic молча
+    отбрасывает лишние ключи ещё до сервиса, поэтому `UnknownProfileFieldError`
+    через HTTP не поднимался вообще ничем: опечатка в имени поля возвращала
+    200 и пустой `changed`. Единственный клиент — форма в книге продавца на
+    Apps Script, где имена полей набиты руками, и «сохранилось» там
+    неотличимо от «поле не то».
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     access_token: str
     row: str | None = None
@@ -1378,7 +1387,7 @@ from app.api.v1.seller_schemas import (
     SellerProfileUpdateResponse,
     SellerStatusResponse,
 )
-from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.errors import ProfileValidationError
 from app.profile.seller_profile_service import SellerProfileService
 
 
@@ -1431,7 +1440,7 @@ def update_seller_profile(
             author_user_id=access.published_by,
             author_role="SELLER",
         )
-    except (UnknownProfileFieldError, ProfileValueTooLongError) as exc:
+    except ProfileValidationError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     session.commit()
@@ -1675,7 +1684,7 @@ from app.infrastructure.repositories.seller_profile_change_repository import (
     SellerProfileChangeRepository,
 )
 from app.platform.seller_gateway import SellerGateway
-from app.profile.errors import ProfileValueTooLongError, UnknownProfileFieldError
+from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -1691,9 +1700,6 @@ def update_seller_profile(
     if access is None:
         return admin_access_denied()
 
-    if SellerGateway(session).find_list_row(seller_id) is None:
-        return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
-
     try:
         changed = SellerProfileService(session).apply(
             seller_id,
@@ -1701,7 +1707,12 @@ def update_seller_profile(
             author_user_id=access.user_id,
             author_role="ADMIN",
         )
-    except (UnknownProfileFieldError, ProfileValueTooLongError) as exc:
+    except SellerNotFoundError as exc:
+        # В отличие от Seller API, здесь seller_id приходит из пути, а не из
+        # токена, поэтому несуществующий продавец — реальная ситуация, а не
+        # недостижимая ветка.
+        return error_response(404, "SELLER_NOT_FOUND", str(exc))
+    except ProfileValidationError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     session.commit()
