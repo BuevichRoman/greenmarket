@@ -248,6 +248,10 @@ git commit -m "test: стаб платформенных users_prop для пр�
 -- Note      : old_value/new_value NULL означает «значения не было» — в
 --             users_prop_items_* колонка value объявлена NOT NULL, поэтому
 --             пустое поле там представлено отсутствием строки, а не NULL.
+-- Note      : author_role — VARCHAR с CHECK, а не ENUM: docs/03-database/
+--             Coding_Standard.md, раздел «Статусы», запрещает ENUM, чтобы
+--             расширение перечня не требовало изменения структуры БД. Образец —
+--             chk_SellerProduct_moderation_status в 005_create_seller_products.sql.
 -- DBMS      : MySQL Community Server 8.0.16+
 
 CREATE TABLE SellerProfileChange
@@ -270,7 +274,7 @@ CREATE TABLE SellerProfileChange
     author_user_id INT NOT NULL
         COMMENT 'Автор изменения в системе идентификации платформы (aristotel_taxi.users.id_user)',
 
-    author_role    ENUM('SELLER', 'ADMIN') NOT NULL
+    author_role    VARCHAR(16) NOT NULL
         COMMENT 'В какой роли автор внёс изменение: сам продавец из книги или администратор через Admin API',
 
     created_at     DATETIME NOT NULL
@@ -288,7 +292,10 @@ CREATE TABLE SellerProfileChange
 
     CONSTRAINT fk_SellerProfileChange_author
         FOREIGN KEY (author_user_id) REFERENCES users(id_user)
-        ON DELETE RESTRICT ON UPDATE RESTRICT
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+
+    CONSTRAINT chk_SellerProfileChange_author_role CHECK
+        (author_role IN ('SELLER', 'ADMIN'))
 )
 ENGINE = InnoDB
 DEFAULT CHARSET = utf8mb4
@@ -310,7 +317,7 @@ Expected: без ошибок.
 cd backend && set -a && . ./.env && set +a && docker exec -e MYSQL_PWD="$DB_PASSWORD" greenmarket-mysql mysql -u"$DB_USER" -D"$DB_NAME" -e "SHOW CREATE TABLE SellerProfileChange\G"
 ```
 
-Expected: два FK (`Seller`, `users`), `author_role` типа `enum('SELLER','ADMIN')`.
+Expected: два FK (`Seller`, `users`), `author_role` типа `varchar(16)` и ограничение `chk_SellerProfileChange_author_role`. Отдельно проверить, что CHECK работает: вставка строки с `author_role = 'ROBOT'` должна отвергаться MySQL.
 
 - [ ] **Step 4: Commit**
 
@@ -1906,7 +1913,20 @@ git commit -m "feat: GET /api/v1/catalog/sellers/{id} — карточка пр�
 ## Task 10: Документация
 
 **Files:**
-- Modify: `docs/04-services/REST_API.md`, `docs/02-domain/Seller_Profile.md`
+- Modify: `docs/04-services/REST_API.md`, `docs/02-domain/Seller_Profile.md`, `docs/03-database/Database_Migrations.md`
+
+- [ ] **Step 0: Внести миграцию 015 в реестр**
+
+В `docs/03-database/Database_Migrations.md` две вещи:
+
+- цепочка порядка применения (строка ~29, вида `001 → 002 → … → 014`) — дописать `→ 015`;
+- таблица со списком файлов миграций (строки ~62–63) — добавить строку по образцу соседних:
+
+```markdown
+| `015_create_seller_profile_change.sql` | создание таблицы `SellerProfileChange` (журнал изменений полей профиля продавца) |
+```
+
+Точную формулировку колонок брать по образцу строк про `013_create_administrator.sql` и `014_fix_moderation_status_invariant.sql` — структура таблицы может отличаться от приведённой здесь.
 
 - [ ] **Step 1: Описать эндпоинты в REST_API.md**
 
