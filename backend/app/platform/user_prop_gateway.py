@@ -1,5 +1,7 @@
-"""Anti-Corruption Layer к платформенному механизму расширяемых свойств
-пользователя (`users_prop` + `users_prop_items_varchar|text`).
+"""Anti-Corruption Layer к платформенным данным пользователя: к механизму
+расширяемых свойств (`users_prop` + `users_prop_items_varchar|text`) и к
+учётному телефону `users.phone`, который читается только ради предзаполнения
+профиля.
 
 Тот же принцип, что у SellerGateway: GreenMarket не владеет этими таблицами и
 не отображает их как ORM-модели. Если платформа однажды закроет прямой доступ к
@@ -13,7 +15,13 @@
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
-from app.profile.fields import VALUE_TYPE_TEXT, VALUE_TYPE_VARCHAR
+# Значения платформенного `users_prop.value_type` (FK на её словарь field_type).
+# Объявлены здесь, а не в продуктовом app/profile: это знание о чужой схеме, и
+# ему полагается жить за ACL — вместе со всем остальным, что меняется, если
+# платформа сменит способ хранения свойств. Типов в словаре больше двух,
+# поддержаны ровно те, которыми пользуется GreenMarket.
+VALUE_TYPE_VARCHAR = 1
+VALUE_TYPE_TEXT = 2
 
 # Имя таблицы значений подставляется в SQL форматированием, поэтому берётся
 # только отсюда — из закрытого словаря, а не из аргументов вызова.
@@ -37,9 +45,28 @@ class UnknownPropError(LookupError):
     """
 
 
+class UnsupportedPropTypeError(LookupError):
+    """У свойства тип значения, который GreenMarket не умеет хранить.
+
+    Соседка UnknownPropError: типов в платформенном словаре field_type больше
+    двух (например, 3 — int), но своей таблицы значений под каждый у нас нет.
+    Явная ошибка вместо KeyError из недр словаря таблиц — чтобы в логе было
+    видно, какое свойство и какой тип, а не только «3».
+    """
+
+
 class UserPropGateway:
     def __init__(self, session: Session):
         self.session = session
+
+    @staticmethod
+    def _items_table(prop_var: str, value_type: int) -> str:
+        try:
+            return _ITEMS_TABLE[value_type]
+        except KeyError:
+            raise UnsupportedPropTypeError(
+                f"Свойство {prop_var}: тип значения {value_type} не поддерживается"
+            ) from None
 
     def _resolve(self, prop_vars: list[str]) -> dict[str, tuple[int, int]]:
         """`var` → (`id_users_prop`, `value_type`) одним запросом."""
@@ -63,7 +90,7 @@ class UserPropGateway:
         by_table: dict[str, list[int]] = {}
         prop_var_by_id: dict[int, str] = {}
         for prop_var, (prop_id, value_type) in resolved.items():
-            by_table.setdefault(_ITEMS_TABLE[value_type], []).append(prop_id)
+            by_table.setdefault(self._items_table(prop_var, value_type), []).append(prop_id)
             prop_var_by_id[prop_id] = prop_var
 
         values: dict[str, str] = {}
@@ -79,7 +106,7 @@ class UserPropGateway:
 
     def write(self, user_id: int, prop_var: str, value: str) -> None:
         prop_id, value_type = self._resolve([prop_var])[prop_var]
-        table = _ITEMS_TABLE[value_type]
+        table = self._items_table(prop_var, value_type)
         self.session.execute(
             text(
                 f"INSERT INTO {table} (id_users_prop, id_user, value) "
@@ -93,7 +120,7 @@ class UserPropGateway:
         """Очистка — DELETE, а не запись пустой строки: `value` NOT NULL, и
         пустая строка в карточке покупателя выглядела бы как заполненное поле."""
         prop_id, value_type = self._resolve([prop_var])[prop_var]
-        table = _ITEMS_TABLE[value_type]
+        table = self._items_table(prop_var, value_type)
         self.session.execute(
             text(f"DELETE FROM {table} WHERE id_users_prop = :prop_id AND id_user = :user_id"),
             {"prop_id": prop_id, "user_id": user_id},

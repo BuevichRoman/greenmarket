@@ -1,10 +1,10 @@
 """Состав профиля продавца — единственный источник правды.
 
-Профиль читают и пишут три разных потребителя (книга продавца через Seller API,
-администратор через Admin API, покупатель через Catalog API). Если набор полей
-описать в каждом из них отдельно, он разъедется при первом же изменении, а
-изменения тут будут: Stage 2 добавляет фото, логотип, соцсети и справочник
-Market (Seller_Profile.md, §4 и §11).
+К профилю обращаются три разных потребителя: книга продавца через Seller API и
+администратор через Admin API его читают и правят, покупатель через Catalog API
+только читает. Если набор полей описать в каждом из них отдельно, он разъедется
+при первом же изменении, а изменения тут будут: Stage 2 добавляет фото, логотип,
+соцсети и справочник Market (Seller_Profile.md, §4 и §11).
 
 Значения лежат в платформенном механизме свойств. `prop_var` — ключ свойства в
 `users_prop.var`; числовой `id_users_prop` в коде не используется никогда, он
@@ -13,8 +13,7 @@ Market (Seller_Profile.md, §4 и §11).
 
 from dataclasses import dataclass
 
-VALUE_TYPE_VARCHAR = 1
-VALUE_TYPE_TEXT = 2
+from app.platform.user_prop_gateway import VALUE_TYPE_TEXT, VALUE_TYPE_VARCHAR
 
 
 @dataclass(frozen=True)
@@ -25,6 +24,10 @@ class ProfileField:
     max_length: int
 
 
+# Здесь только те поля профиля, которыми владеет GreenMarket. `name` и `status`
+# (Seller_Profile.md, §5) — тоже поля профиля, но хранятся не в свойствах:
+# `name` это users.name платформы, `status` это Seller.is_active.
+#
 # max_length у varchar-полей равен ширине users_prop_items_varchar.value (255).
 # short_description лежит в users_prop_items_text; ограничение 2000 — наше
 # продуктовое, а не схемное: краткое описание в карточке продавца
@@ -37,11 +40,6 @@ PROFILE_FIELDS: tuple[ProfileField, ...] = (
     ProfileField("phone", "gm_seller_phone", VALUE_TYPE_VARCHAR, 255),
     ProfileField("whatsapp", "gm_seller_whatsapp", VALUE_TYPE_VARCHAR, 255),
 )
-
-# Пока редактируются все поля профиля, но список отделён намеренно: name и
-# status тоже поля профиля (Seller_Profile.md, §5), просто владеет ими не
-# GreenMarket — name это users.name платформы, status это Seller.is_active.
-EDITABLE_FIELDS: tuple[ProfileField, ...] = PROFILE_FIELDS
 
 _BY_NAME = {field.name: field for field in PROFILE_FIELDS}
 
