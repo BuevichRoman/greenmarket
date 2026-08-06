@@ -72,11 +72,12 @@ users_prop_roles_edit(id_users_prop INT, id_role INT, PK(id_users_prop, id_role)
 - `database/migrations/015_create_seller_profile_change.sql` — журнал изменений профиля.
 - `backend/app/platform/user_prop_gateway.py` — ACL к `users_prop*` и к `users.phone`. Единственное место в кодовой базе, знающее имена платформенных prop-таблиц.
 - `backend/app/profile/__init__.py`
-- `backend/app/profile/fields.py` — определение полей профиля (имя поля → `var` свойства → тип значения → лимит длины). Единый источник для всех потребителей.
+- `backend/app/profile/fields.py` — определение полей профиля (имя поля → `var` свойства → тип значения → лимит длины). Единый источник для всех потребителей. Коды типов значений (`VALUE_TYPE_VARCHAR`/`VALUE_TYPE_TEXT`) объявлены не здесь, а в `user_prop_gateway.py`: это знание платформы (`users_prop.value_type` — FK на её словарь `field_type`), и зависимость идёт от продукта к ACL, а не наоборот.
 - `backend/app/profile/seller_profile_service.py` — чтение профиля, применение изменений, запись журнала.
 - `backend/app/infrastructure/repositories/seller_profile_change_repository.py` — журнал.
 - `backend/app/api/v1/admin_profile.py` — админская правка профиля и лента изменений (в `admin.py` не дописываем — там уже онбординг и справочники, файл разделён по темам: `admin_catalog.py`, `admin_moderation.py`).
 - `backend/tests/test_user_prop_gateway.py`
+- `backend/tests/test_profile_fields.py`
 - `backend/tests/test_seller_profile_service.py`
 - `backend/tests/test_seller_profile_api.py`
 - `backend/tests/test_admin_profile_api.py`
@@ -332,7 +333,12 @@ git commit -m "feat: миграция 015 — журнал изменений п
 
 **Files:**
 - Create: `backend/app/profile/__init__.py`, `backend/app/profile/fields.py`
-- Test: `backend/tests/test_seller_profile_service.py` (первый тест файла)
+- Test: `backend/tests/test_profile_fields.py`
+
+> **Поправки после ревью (внесены при исполнении, приведённый ниже код им предшествует):**
+> - `EDITABLE_FIELDS` **удалён**. Он был идентичен `PROFILE_FIELDS`, а комментарий объяснял разделение через `name`/`status`, которых в наборе нет — то есть различие существовало только на словах, зато вызывающий выбирал имя наугад. Везде дальше по плану, где написано `EDITABLE_FIELDS`, читать `PROFILE_FIELDS`.
+> - `VALUE_TYPE_VARCHAR`/`VALUE_TYPE_TEXT` объявлены в `user_prop_gateway.py` (Task 4), а `fields.py` их импортирует — коды типов принадлежат платформе, а не продукту.
+> - Тестовый файл называется `test_profile_fields.py`, а не `test_seller_profile_service.py`: он тестирует `fields.py`, сервис появляется только в Task 6 и заводит свой файл.
 
 - [ ] **Step 1: Написать падающий тест**
 
@@ -450,6 +456,13 @@ git commit -m "feat: определение полей профиля прода
 - Test: `backend/tests/test_user_prop_gateway.py`
 
 Тот же паттерн, что `SellerGateway` (`backend/app/platform/seller_gateway.py`): сырой SQL через `text()`, никаких ORM-моделей на платформенные таблицы, весь остальной код о существовании `users_prop*` не знает.
+
+> **Поправки после ревью (внесены при исполнении, приведённый ниже код им предшествует):**
+> - `VALUE_TYPE_VARCHAR`/`VALUE_TYPE_TEXT` объявлены здесь, а не импортируются из `fields.py` — иначе единственный файл в `app/platform/` зависел бы от продуктового модуля, и обещание докстринга «меняется только этот файл» было бы неправдой.
+> - Добавлено исключение `UnsupportedPropTypeError` — раньше свойство с `value_type = 3` (в платформенном словаре `field_type` тройка есть, это int) давало голый `KeyError` из недр `_ITEMS_TABLE`.
+> - `# noqa: S608` убран: в проекте нет ни ruff, ни flake8, директива под несуществующий линтер только сбивает с толку. Безопасность f-string объяснена комментарием над `_ITEMS_TABLE`.
+> - `ON DUPLICATE KEY UPDATE value = VALUES(value)` заменено на `= :value`: `VALUES()` признана deprecated в MySQL 8.0.20+, локальный сервер 8.0.36 пишет предупреждение.
+> - Набор тестов расширен сверх перечисленного ниже: физическая таблица под varchar- и text-свойство проверяется сырым SQL (иначе перепутанный маппинг `_ITEMS_TABLE` не роняет ни одного теста), изоляция значений по `id_user`, чтение списка свойств при частично заполненных значениях, `read` с пустым списком, `clear` по text-свойству и по несуществующей строке, верхняя граница правдоподобия телефона.
 
 - [ ] **Step 1: Написать падающий тест**
 
@@ -685,7 +698,7 @@ git commit -m "feat: UserPropGateway — ACL к платформенным св�
 **Files:**
 - Modify: `backend/app/infrastructure/models.py` (в конец файла)
 - Create: `backend/app/infrastructure/repositories/seller_profile_change_repository.py`
-- Test: `backend/tests/test_seller_profile_service.py` (дописать)
+- Test: `backend/tests/test_seller_profile_service.py` (создать — тесты `fields.py` из Task 3 живут отдельно, в `test_profile_fields.py`)
 
 - [ ] **Step 1: Написать падающий тест**
 
@@ -880,6 +893,8 @@ git commit -m "feat: журнал изменений профиля продав
 
 Сервис — единственное место, где «прочитать профиль» и «применить изменения с записью в журнал» описаны один раз для всех трёх потребителей.
 
+**Проверка длины обязана жить здесь, а не полагаться на БД.** Для varchar-полей превышение поймает MySQL, но грубо: `DataError (1406, "Data too long")` вылетит наружу голой пятисоткой мимо конвенции `{"error": {...}}` — обработчика `DataError` в `app/main.py` нет. Для `short_description` не поймает вообще: колонка `users_prop_items_text.value` держит 65535 символов, а ограничение 2000 — наше продуктовое. То есть объявленный в `fields.py` `max_length` работает ровно настолько, насколько его проверяет `apply()`.
+
 - [ ] **Step 1: Написать падающий тест**
 
 Дописать в `backend/tests/test_seller_profile_service.py`:
@@ -1035,7 +1050,7 @@ from app.infrastructure.repositories.seller_profile_change_repository import (
 )
 from app.platform.seller_gateway import SellerGateway
 from app.platform.user_prop_gateway import UserPropGateway
-from app.profile.fields import EDITABLE_FIELDS, PROFILE_FIELDS, field_by_name
+from app.profile.fields import PROFILE_FIELDS, field_by_name
 
 
 class UnknownProfileFieldError(LookupError):
@@ -1089,7 +1104,7 @@ class SellerProfileService:
         Поля, которых нет в `values`, не трогаются — форма может присылать
         только то, что редактировала. Пустая строка и `None` означают очистку.
         """
-        editable = {field.name for field in EDITABLE_FIELDS}
+        editable = {field.name for field in PROFILE_FIELDS}
         unknown = set(values) - editable
         if unknown:
             raise UnknownProfileFieldError(f"Неизвестные поля профиля: {', '.join(sorted(unknown))}")
