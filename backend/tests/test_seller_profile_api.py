@@ -146,10 +146,10 @@ def test_put_profile_clears_field_with_empty_string(committing_session):
     assert saved["row"] is None
 
 
-def test_put_profile_silently_ignores_unknown_field(committing_session):
-    # Фиксация фактического поведения: SellerProfileUpdateRequest — обычная
-    # Pydantic-модель, лишние ключи она отбрасывает до сервиса, поэтому
-    # UnknownProfileFieldError не поднимается и запрос проходит вхолостую.
+def test_put_profile_rejects_unknown_field(committing_session):
+    # Единственный клиент эндпоинта — форма в книге продавца, где имена полей
+    # набиты руками. Опечатка в имени поля должна быть слышна сразу, а не
+    # выглядеть как успешное сохранение с пустым changed.
     client, _ = setup_client(committing_session)
 
     response = client.put(
@@ -157,8 +157,8 @@ def test_put_profile_silently_ignores_unknown_field(committing_session):
     )
 
     app.dependency_overrides.clear()
-    assert response.status_code == 200
-    assert response.json()["changed"] == []
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_get_profile_drops_suggestion_once_own_phone_saved(committing_session):

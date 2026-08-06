@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SellerStatusResponse(BaseModel):
@@ -41,7 +41,13 @@ class SellerProfileResponse(BaseModel):
 
 class SellerProfileUpdateRequest(BaseModel):
     """Правятся только переданные поля: отсутствие ключа — «не трогать»,
-    пустая строка — «очистить»."""
+    пустая строка — «очистить».
+
+    Лишние ключи запрещены (`extra="forbid"`), потому что молчаливое
+    игнорирование опечатки в имени поля неотличимо от успешного сохранения.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     access_token: str
     row: str | None = None
