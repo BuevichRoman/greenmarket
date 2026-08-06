@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdminActivationRequest(BaseModel):
@@ -130,6 +130,49 @@ class ModerationResolveResponse(BaseModel):
     moderator_id: int
     moderated_at: datetime
     moderation_comment: str | None
+
+
+class AdminSellerProfileUpdateRequest(BaseModel):
+    """Тот же набор полей, что у продавца, но без access_token — админ
+    аутентифицируется заголовком Authorization (см. REST_API.md, Admin API).
+
+    `extra="forbid"` — по той же причине, что и у `SellerProfileUpdateRequest`:
+    иначе опечатка в имени поля давала бы 422 продавцу и молчаливые 200
+    администратору поверх одного и того же сервиса.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    row: str | None = None
+    place: str | None = None
+    working_hours: str | None = None
+    short_description: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+
+    def changed_values(self) -> dict[str, str | None]:
+        return self.model_dump(exclude_unset=True)
+
+
+class AdminSellerProfileUpdateResponse(BaseModel):
+    seller_id: int
+    changed: list[str]
+
+
+class SellerProfileChangeItem(BaseModel):
+    id: int
+    seller_id: int
+    seller_name: str
+    field: str
+    old_value: str | None
+    new_value: str | None
+    author_user_id: int
+    author_role: str
+    created_at: datetime
+
+
+class SellerProfileChangeFeedResponse(BaseModel):
+    changes: list[SellerProfileChangeItem]
 
 
 class ProductUpdateRequest(BaseModel):
