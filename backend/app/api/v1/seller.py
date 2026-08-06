@@ -16,7 +16,7 @@ from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.platform.seller_gateway import SellerGateway
-from app.profile.errors import ProfileValidationError
+from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
 from app.publication.seller_activation import activate_seller
 
@@ -62,17 +62,19 @@ def activate(
     return SellerActivationResponse(access_token=access_token)
 
 
-def _profile_response(seller_id: int, name: str, session: Session) -> SellerProfileResponse | JSONResponse:
-    status = SellerGateway(session).get_status(seller_id)
-    if status is None:
+def _profile_response(seller_id: int, *, session: Session) -> SellerProfileResponse | JSONResponse:
+    # find_list_row, а не get_status: имя и is_active приезжают одной строкой,
+    # а имя из токена брать нельзя — оно есть только у этого вызывающего.
+    seller = SellerGateway(session).find_list_row(seller_id)
+    if seller is None:
         return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
 
     service = SellerProfileService(session)
     profile = service.read(seller_id)
     return SellerProfileResponse(
         seller_id=seller_id,
-        name=name,
-        status="ACTIVE" if status.is_active else "INACTIVE",
+        name=seller.name,
+        status="ACTIVE" if seller.is_active else "INACTIVE",
         suggested_phone=service.suggested_phone(seller_id),
         **profile,
     )
@@ -87,7 +89,7 @@ def get_seller_profile(
     access = resolve_access(access_token)
     if access is None:
         return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
-    return _profile_response(access.seller_id, access.name, session)
+    return _profile_response(access.seller_id, session=session)
 
 
 @router.put("/profile", response_model=SellerProfileUpdateResponse)
@@ -109,6 +111,8 @@ def update_seller_profile(
             author_user_id=access.published_by,
             author_role="SELLER",
         )
+    except SellerNotFoundError as exc:
+        return error_response(404, "SELLER_NOT_FOUND", str(exc))
     except ProfileValidationError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 

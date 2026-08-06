@@ -6,16 +6,15 @@ from app.infrastructure.database import get_session
 from app.infrastructure.repositories.seller_profile_change_repository import (
     SellerProfileChangeRepository,
 )
+from app.api.v1.seller_schemas import SellerProfileUpdateRequest
 from app.main import app
+from app.profile.fields import PROFILE_FIELDS
 from app.publication.seller_access import SellerAccess
 
 VALID_TOKEN = "seller-profile-test-token"
 
 
 def override_seller_access(seller_id: int, published_by: int) -> None:
-    # published_by — это и есть платформенный users.id_user продавца
-    # (см. app/publication/seller_access.py): поле названо по первому
-    # потребителю, публикации, но хранит именно id пользователя.
     access = SellerAccess(seller_id=seller_id, published_by=published_by, name="Пасека Ромашково")
     app.dependency_overrides[get_seller_access_resolver] = lambda: (
         lambda token: access if token == VALID_TOKEN else None
@@ -39,8 +38,14 @@ def insert_seller(session, *, name: str, phone: int | None = None) -> tuple[int,
     return seller_id, user_id
 
 
-def setup_client(committing_session, *, phone: int | None = None) -> tuple[TestClient, int]:
+def setup_client(
+    committing_session, *, phone: int | None = None, is_active: bool = True
+) -> tuple[TestClient, int]:
     seller_id, user_id = insert_seller(committing_session, name="Пасека Ромашково", phone=phone)
+    if not is_active:
+        committing_session.execute(
+            text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id}
+        )
     override_session(committing_session)
     override_seller_access(seller_id, user_id)
     return TestClient(app), seller_id
@@ -54,12 +59,40 @@ def test_get_profile_returns_empty_fields_for_new_seller(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()
+    # Набор ключей выводится из PROFILE_FIELDS, а не перечисляется руками:
+    # fields.py объявлен единственным источником правды о составе профиля, и
+    # седьмое поле, добавленное в Stage 2, должно уронить этот тест, а не тихо
+    # не доехать до HTTP-контракта.
+    assert set(body) == {"seller_id", "name", "status", "suggested_phone"} | {
+        field.name for field in PROFILE_FIELDS
+    }
     assert body["seller_id"] == seller_id
     assert body["name"] == "Пасека Ромашково"
     assert body["status"] == "ACTIVE"
-    assert body["row"] is None
-    assert body["phone"] is None
+    assert all(body[field.name] is None for field in PROFILE_FIELDS)
     assert body["suggested_phone"] is None
+
+
+def test_update_request_accepts_exactly_the_profile_fields():
+    # Обратная сторона той же ловушки: новое поле в fields.py, не добавленное в
+    # схему запроса, оставит его нередактируемым — сервис его примет, а
+    # extra="forbid" не пропустит дальше HTTP.
+    assert set(SellerProfileUpdateRequest.model_fields) == {"access_token"} | {
+        field.name for field in PROFILE_FIELDS
+    }
+
+
+def test_get_profile_reports_inactive_seller(committing_session):
+    # Деактивация прячет каталог от покупателей, но кабинет продавцу остаётся
+    # (SellerGateway.find_by_access_token намеренно не смотрит на is_active),
+    # так что открытая деактивированным продавцом форма — штатный сценарий.
+    client, _ = setup_client(committing_session, is_active=False)
+
+    response = client.get("/api/v1/seller/profile", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["status"] == "INACTIVE"
 
 
 def test_get_profile_rejects_bad_token(committing_session):
@@ -123,6 +156,22 @@ def test_put_profile_rejects_bad_token(committing_session):
 
     app.dependency_overrides.clear()
     assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
+
+
+def test_put_profile_returns_404_for_token_with_no_seller_row(committing_session):
+    # Симметрия с GET: та же ситуация должна давать тот же ответ, иначе
+    # SellerNotFoundError улетела бы голой пятисоткой мимо конверта ошибок —
+    # общего обработчика исключений в main.py нет.
+    override_session(committing_session)
+    override_seller_access(999_999, 1)
+    client = TestClient(app)
+
+    response = client.put("/api/v1/seller/profile", json={"access_token": VALID_TOKEN, "row": "Ряд 3"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SELLER_NOT_FOUND"
 
 
 def test_put_profile_rejects_too_long_value(committing_session):
@@ -199,7 +248,7 @@ def test_put_profile_without_changes_returns_empty_changed(committing_session):
     assert response.json()["changed"] == []
 
 
-def test_put_profile_survives_rollback_of_later_work(committing_session):
+def test_put_profile_commits_the_change(committing_session):
     # Все прочие тесты видят запись PUT просто потому, что делят с ним сессию, —
     # без коммита они бы тоже прошли. Откат после запроса отделяет «записано в
     # сессию» от «зафиксировано»: если эндпоинт забудет session.commit(),
