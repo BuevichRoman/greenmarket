@@ -72,6 +72,22 @@ def test_get_profile_rejects_bad_token(committing_session):
     assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
 
 
+def test_get_profile_returns_404_for_token_with_no_seller_row(committing_session):
+    # Токен резолвится (не 403), но указывает на несуществующий seller_id:
+    # это «продавец не найден», а не проблема доступа. Сам сервис на такого
+    # продавца ошибку не бросает — читается профиль сплошь из None, — поэтому
+    # 404 отдаёт именно эндпоинт, и проверять его нужно здесь.
+    override_session(committing_session)
+    override_seller_access(999_999, 1)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/seller/profile", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SELLER_NOT_FOUND"
+
+
 def test_put_profile_saves_and_returns_changed_fields(committing_session):
     client, _ = setup_client(committing_session)
 
@@ -189,13 +205,19 @@ def test_put_profile_survives_rollback_of_later_work(committing_session):
     # сессию» от «зафиксировано»: если эндпоинт забудет session.commit(),
     # сохранённое значение исчезнет.
     client, _ = setup_client(committing_session)
+    # Продавца фиксируем до PUT, иначе откат снёс бы и его: тогда GET отдал бы
+    # 404, и тест падал бы на отсутствии продавца, а не на пустом профиле —
+    # то есть проверял бы «ничего не зафиксировалось» вместо «не
+    # зафиксировалась именно запись профиля».
+    committing_session.commit()
 
     client.put("/api/v1/seller/profile", json={"access_token": VALID_TOKEN, "row": "Ряд 3"})
     committing_session.rollback()
-    saved = client.get("/api/v1/seller/profile", params={"access_token": VALID_TOKEN}).json()
+    response = client.get("/api/v1/seller/profile", params={"access_token": VALID_TOKEN})
 
     app.dependency_overrides.clear()
-    assert saved["row"] == "Ряд 3"
+    assert response.status_code == 200
+    assert response.json()["row"] == "Ряд 3"
 
 
 def test_put_profile_records_seller_as_author_in_journal(committing_session):

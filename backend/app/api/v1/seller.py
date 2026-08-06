@@ -104,6 +104,8 @@ def update_seller_profile(
         changed = SellerProfileService(session).apply(
             access.seller_id,
             request.changed_values(),
+            # published_by — платформенный users.id_user продавца: поле названо
+            # по первому потребителю, публикациям, но хранит именно id пользователя.
             author_user_id=access.published_by,
             author_role="SELLER",
         )
