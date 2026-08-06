@@ -14,6 +14,9 @@
 -- Note      : old_value/new_value NULL означает «значения не было» — в
 --             users_prop_items_* колонка value объявлена NOT NULL, поэтому
 --             пустое поле там представлено отсутствием строки, а не NULL.
+-- Note      : author_role хранится строкой с CHECK, а не ENUM — по требованию
+--             docs/03-database/Coding_Standard.md, раздел «Статусы»:
+--             расширение перечня не должно требовать изменения структуры БД.
 -- DBMS      : MySQL Community Server 8.0.16+
 
 CREATE TABLE SellerProfileChange
@@ -36,7 +39,7 @@ CREATE TABLE SellerProfileChange
     author_user_id INT NOT NULL
         COMMENT 'Автор изменения в системе идентификации платформы (aristotel_taxi.users.id_user)',
 
-    author_role    ENUM('SELLER', 'ADMIN') NOT NULL
+    author_role    VARCHAR(16) NOT NULL
         COMMENT 'В какой роли автор внёс изменение: сам продавец из книги или администратор через Admin API',
 
     created_at     DATETIME NOT NULL
@@ -54,7 +57,10 @@ CREATE TABLE SellerProfileChange
 
     CONSTRAINT fk_SellerProfileChange_author
         FOREIGN KEY (author_user_id) REFERENCES users(id_user)
-        ON DELETE RESTRICT ON UPDATE RESTRICT
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+
+    CONSTRAINT chk_SellerProfileChange_author_role CHECK
+        (author_role IN ('SELLER', 'ADMIN'))
 )
 ENGINE = InnoDB
 DEFAULT CHARSET = utf8mb4
