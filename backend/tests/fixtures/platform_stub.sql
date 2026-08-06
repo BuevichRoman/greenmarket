@@ -12,6 +12,13 @@
 -- GreenMarket (создаются миграциями 003/004), а отдельной таблицы User не
 -- существует ни на платформе, ни в GreenMarket — ссылки идут на users.id_user
 -- напрямую.
+--
+-- С 06.08.2026 файл стабит ещё и платформенный механизм расширяемых свойств
+-- пользователя: колонки users.phone/users.wa и таблицы users_prop/
+-- users_prop_items_varchar/users_prop_items_text (см. блок ниже). Их схема
+-- снята с боевой aristotel_taxi — не «улучшать» её по вкусу: любое расхождение
+-- со схемой прода (лишняя/недостающая колонка, другой тип, другой constraint)
+-- это будущий баг, который тесты на локальном стабе не поймают.
 
 CREATE DATABASE IF NOT EXISTS greenmarket
     CHARACTER SET utf8mb4
@@ -28,8 +35,10 @@ CREATE TABLE users
   COMMENT = 'СТАБ платформенной таблицы aristotel_taxi.users — только для тестов/dev';
 
 -- Колонки users, которые GreenMarket читает (никогда не пишет):
--- phone — предзаполнение витринного телефона в профиле продавца; BIGINT, как на платформе.
--- wa    — на боевой платформе не заполнена ни у одного пользователя, объявлена для полноты.
+-- phone — читаем: предзаполнение витринного телефона в профиле продавца; BIGINT, как на платформе.
+-- wa    — не читаем и не пишем: на боевой платформе не заполнена ни у одного пользователя,
+--         предзаполнения WhatsApp в коде нет и не планируется. Объявлена только для того,
+--         чтобы стаб не расходился с боевой схемой users.
 ALTER TABLE users
     ADD COLUMN phone BIGINT NULL
         COMMENT 'СТАБ: учётный телефон платформы, только для чтения',
@@ -40,6 +49,9 @@ ALTER TABLE users
 -- Боевые таблицы живут в aristotel_taxi и созданы платформой; здесь только то,
 -- что читает и пишет GreenMarket. FK на field_type/users_roles намеренно нет —
 -- этих словарей у нас локально не существует, а код к ним не обращается.
+-- На проде в users_prop есть ещё name_ar/name_fr/name_es (UNIQUE, как name_ru/
+-- name_en) и пять description_* TEXT NOT NULL — они здесь не стабятся по той
+-- же причине: GreenMarket их не читает и не пишет.
 CREATE TABLE users_prop
 (
     id_users_prop  INT NOT NULL AUTO_INCREMENT,
@@ -51,7 +63,9 @@ CREATE TABLE users_prop
     `some`         TINYINT(1) NOT NULL DEFAULT 0,
     visibility     TINYINT(1) NOT NULL DEFAULT 12,
     PRIMARY KEY (id_users_prop),
-    UNIQUE INDEX uk_users_prop_var (var)
+    UNIQUE INDEX uk_users_prop_var (var),
+    UNIQUE INDEX uk_users_prop_name_ru (name_ru),
+    UNIQUE INDEX uk_users_prop_name_en (name_en)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
   COMMENT = 'СТАБ платформенной users_prop — только для тестов/dev';
 
