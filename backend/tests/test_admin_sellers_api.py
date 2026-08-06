@@ -213,6 +213,29 @@ def test_deactivate_hides_catalog_and_activate_restores_it(committing_session):
     app.dependency_overrides.clear()
 
 
+def test_deactivated_seller_keeps_working_in_cabinet(committing_session):
+    """Деактивация — про видимость покупателю, а не про отключение продавца:
+    кабинет и публикация ему остаются (решение коллеги от 2026-08-05)."""
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ деактивации кабинета")
+    user_id = insert_user(committing_session, name="Фермер деактивации кабинета")
+    seller_id = client.post("/api/v1/admin/sellers", json={"user_id": user_id}, headers=headers).json()["seller_id"]
+    committing_session.execute(
+        text("UPDATE Seller SET access_token = :token WHERE id = :id"),
+        {"token": "token-deactivated-seller", "id": seller_id},
+    )
+    client.put(f"/api/v1/admin/sellers/{seller_id}/deactivate", headers=headers)
+
+    response = client.get("/api/v1/seller/catalog", params={"access_token": "token-deactivated-seller"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["seller_id"] == seller_id
+    assert body["is_active"] is False
+
+
 def test_activate_is_idempotent(committing_session):
     override_session(committing_session)
     client = TestClient(app)

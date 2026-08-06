@@ -215,11 +215,16 @@ class SellerGateway:
         )
 
     def find_by_access_token(self, access_token: str) -> SellerAccessRow | None:
+        """`is_active` здесь намеренно не проверяется: временная деактивация
+        скрывает каталог от покупателей, но продавца не отключает — кабинет и
+        публикация ему остаются (решение коллеги от 2026-08-05, Admin_MVP.md
+        «Временная деактивация»). Видимость покупателю фильтруется отдельно —
+        list_active_seller_ids."""
         row = self.session.execute(
             text(
                 "SELECT s.id, s.user_id, u.name FROM Seller s "
                 "JOIN users u ON u.id_user = s.user_id "
-                "WHERE s.access_token = :token AND s.is_active = TRUE"
+                "WHERE s.access_token = :token"
             ),
             {"token": access_token},
         ).first()
