@@ -15,11 +15,12 @@ from app.infrastructure.repositories.seller_profile_change_repository import (
 )
 from app.platform.seller_gateway import SellerGateway
 from app.platform.user_prop_gateway import UserPropGateway
+from app.profile.errors import (
+    ProfileValueTooLongError,
+    SellerNotFoundError,
+    UnknownProfileFieldError,
+)
 from app.profile.fields import PROFILE_FIELDS, ProfileField, field_by_name
-
-
-class UnknownProfileFieldError(LookupError):
-    """В запросе поле, которого нет в профиле."""
 
 
 class SellerProfileService:
@@ -28,14 +29,28 @@ class SellerProfileService:
         self.props = UserPropGateway(session)
         self.sellers = SellerGateway(session)
         self.journal = SellerProfileChangeRepository(session)
+        # user_id продавца за время жизни сервиса не меняется, а спрашивают его
+        # много раз за запрос: read() на каждый вызов, suggested_phone() поверх
+        # read() ещё раз, apply() до и после. Кэш ключом по seller_id, а не
+        # одним полем: один экземпляр сервиса обслуживает и несколько продавцов
+        # (например, лента админа).
+        self._user_ids: dict[int, int | None] = {}
 
     def _user_id(self, seller_id: int) -> int | None:
-        row = self.sellers.find_list_row(seller_id)
-        return None if row is None else row.user_id
+        if seller_id not in self._user_ids:
+            row = self.sellers.find_list_row(seller_id)
+            self._user_ids[seller_id] = None if row is None else row.user_id
+        return self._user_ids[seller_id]
 
     def read(self, seller_id: int) -> dict[str, str | None]:
         """Профиль продавца. Незаполненные поля — `None`, а не отсутствующие
-        ключи: потребителю (форма, карточка) удобнее одинаковый набор ключей."""
+        ключи: потребителю (форма, карточка) удобнее одинаковый набор ключей.
+
+        У несуществующего продавца профиль тоже читается — весь из `None`, без
+        ошибки. Отличить его от продавца с пустым профилем здесь нельзя и не
+        нужно: 404 отдаёт эндпоинт, который проверяет существование продавца
+        сам, а `apply()` для этого бросает SellerNotFoundError.
+        """
         user_id = self._user_id(seller_id)
         if user_id is None:
             return {field.name: None for field in PROFILE_FIELDS}
@@ -57,33 +72,34 @@ class SellerProfileService:
         return None if user_id is None else self.props.platform_phone(user_id)
 
     @staticmethod
-    def _normalize(values: dict[str, str | None]) -> dict[ProfileField, str | None]:
-        """Приводит присланные значения к тому, что ляжет в хранилище, и
-        проверяет длину — всё до единой записи, чтобы неудачная валидация не
-        оставила половину формы сохранённой.
+    def _validated_values(values: dict[str, str | None]) -> dict[ProfileField, str | None]:
+        """Защитный шлюз перед записью: отсеивает неизвестные поля, приводит
+        значения к тому, что ляжет в хранилище (strip, пустое → `None`), и
+        проверяет длину.
 
-        Длину проверяем здесь, а не полагаемся на БД: у varchar-полей MySQL
-        ответил бы DataError мимо конвенции `{"error": {...}}`, а у
-        `short_description` не ответил бы вовсе — колонка держит 65535
-        символов, ограничение 2000 наше продуктовое.
+        Всё это до единой записи: иначе неудачная валидация оставила бы часть
+        формы сохранённой, а вызывающий получил бы ошибку и не узнал, что
+        что-то всё-таки записалось.
+
+        Длину проверяем здесь, а не полагаемся на БД: у varchar-полей ответ
+        зависит от sql_mode (на проде он пустой — значение молча обрежется), а
+        у `short_description` БД не возразит в любом случае — колонка
+        `users_prop_items_text.value` держит 65535 символов, ограничение 2000
+        наше продуктовое.
         """
-        unknown = {name for name in values if field_by_name(name) is None}
-        if unknown:
-            raise UnknownProfileFieldError(
-                f"Неизвестные поля профиля: {', '.join(sorted(unknown))}"
-            )
+        resolved = [(name, field_by_name(name), raw) for name, raw in values.items()]
 
-        normalized: dict[ProfileField, str | None] = {}
-        for name, raw in values.items():
-            field = field_by_name(name)
-            assert field is not None  # проверено выше
+        unknown = sorted(name for name, field, _ in resolved if field is None)
+        if unknown:
+            raise UnknownProfileFieldError(unknown)
+
+        validated: dict[ProfileField, str | None] = {}
+        for name, field, raw in resolved:
             new_value = (raw or "").strip() or None
             if new_value is not None and len(new_value) > field.max_length:
-                raise ValueError(
-                    f"Поле «{name}» длиннее допустимых {field.max_length} символов"
-                )
-            normalized[field] = new_value
-        return normalized
+                raise ProfileValueTooLongError(name, field.max_length)
+            validated[field] = new_value
+        return validated
 
     def apply(
         self,
@@ -95,19 +111,29 @@ class SellerProfileService:
     ) -> list[str]:
         """Применяет изменения и возвращает имена реально изменившихся полей.
 
-        Поля, которых нет в `values`, не трогаются — форма может присылать
-        только то, что редактировала. Пустая строка и `None` означают очистку.
+        Поля, которых нет в `values`, не трогаются — форма присылает только то,
+        что редактировала (эндпоинт кормит сюда `exclude_unset`). Очистка — это
+        явно присланная пустая строка или `None`, а не отсутствие ключа.
+
+        `author_user_id` — тот, кто правит, а не владелец профиля: у админа это
+        не совпадает с продавцом, и весь смысл журнала в том, чтобы эти два
+        случая различать.
         """
-        normalized = self._normalize(values)
+        validated = self._validated_values(values)
 
         user_id = self._user_id(seller_id)
         if user_id is None:
-            raise LookupError(f"Продавец {seller_id} не найден")
+            raise SellerNotFoundError(seller_id)
 
         current = self.read(seller_id)
         changed: list[str] = []
 
-        for field, new_value in normalized.items():
+        # Обход по PROFILE_FIELDS, а не по присланному словарю: порядок ответа
+        # не должен зависеть от того, в каком порядке клиент собрал JSON.
+        for field in PROFILE_FIELDS:
+            if field not in validated:
+                continue
+            new_value = validated[field]
             old_value = current[field.name]
             if new_value == old_value:
                 continue

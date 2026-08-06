@@ -4,7 +4,16 @@ from sqlalchemy import text
 from app.infrastructure.repositories.seller_profile_change_repository import (
     SellerProfileChangeRepository,
 )
-from app.profile.seller_profile_service import SellerProfileService, UnknownProfileFieldError
+from app.profile.errors import (
+    ProfileValueTooLongError,
+    SellerNotFoundError,
+    UnknownProfileFieldError,
+)
+from app.profile.seller_profile_service import SellerProfileService
+
+# id, которого заведомо нет в Seller: таблица с AUTO_INCREMENT, до миллиарда
+# строк в тестовой базе не доходит.
+MISSING_SELLER_ID = 1_000_000_000
 
 
 def create_seller(session, *, name: str) -> tuple[int, int]:
@@ -222,7 +231,7 @@ def test_apply_rejects_unknown_field(session, seller):
 
 def test_apply_rejects_too_long_value(session, seller):
     seller_id, user_id = seller
-    with pytest.raises(ValueError):
+    with pytest.raises(ProfileValueTooLongError):
         SellerProfileService(session).apply(
             seller_id, {"row": "х" * 256}, author_user_id=user_id, author_role="SELLER"
         )
@@ -232,7 +241,7 @@ def test_apply_rejects_too_long_short_description(session, seller):
     """Ограничение 2000 — продуктовое: колонка users_prop_items_text.value держит
     65535 символов, поэтому без проверки в сервисе оно не работает вообще."""
     seller_id, user_id = seller
-    with pytest.raises(ValueError):
+    with pytest.raises(ProfileValueTooLongError):
         SellerProfileService(session).apply(
             seller_id, {"short_description": "х" * 2001}, author_user_id=user_id, author_role="SELLER"
         )
@@ -271,7 +280,7 @@ def test_apply_writes_nothing_when_a_value_is_too_long(session, seller):
     формы сохранится, а часть нет, и продавец об этом не узнает."""
     seller_id, user_id = seller
     service = SellerProfileService(session)
-    with pytest.raises(ValueError):
+    with pytest.raises(ProfileValueTooLongError):
         service.apply(
             seller_id,
             {"row": "Ряд 3", "short_description": "х" * 2001},
@@ -304,3 +313,75 @@ def test_suggested_phone_is_none_when_own_value_exists(session, seller):
     )
     session.flush()
     assert SellerProfileService(session).suggested_phone(seller_id) is None
+
+
+def test_apply_leaves_fields_absent_from_request_untouched(session, seller):
+    """Отсутствие ключа — «не редактировали», а не «очистить».
+
+    Эндпоинт кормит сюда `exclude_unset`, поэтому форма, приславшая один
+    телефон, не должна стереть ряд, место, часы, описание и WhatsApp — и
+    отчитаться о пяти изменениях в ленте админа.
+    """
+    seller_id, user_id = seller
+    service = SellerProfileService(session)
+    service.apply(seller_id, {"row": "Ряд 3"}, author_user_id=user_id, author_role="SELLER")
+    changed = service.apply(seller_id, {"place": "Место 1"}, author_user_id=user_id, author_role="SELLER")
+    session.flush()
+
+    assert changed == ["place"]
+    profile = service.read(seller_id)
+    assert profile["row"] == "Ряд 3"
+    assert profile["place"] == "Место 1"
+    assert len(SellerProfileChangeRepository(session).list_by_seller(seller_id)) == 2
+
+
+def test_apply_records_the_caller_as_author_not_the_seller(session, seller):
+    """Админ, правящий чужой профиль, должен быть отличим от самого продавца —
+    ради этого журнал и заведён."""
+    seller_id, seller_user_id = seller
+    admin_user_id = session.execute(
+        text("INSERT INTO users (name) VALUES (:name)"), {"name": "Администратор профиля"}
+    ).lastrowid
+
+    SellerProfileService(session).apply(
+        seller_id, {"row": "Ряд от админа"}, author_user_id=admin_user_id, author_role="ADMIN"
+    )
+    session.flush()
+
+    latest = SellerProfileChangeRepository(session).list_by_seller(seller_id)[0]
+    assert latest.author_user_id == admin_user_id
+    assert latest.author_user_id != seller_user_id
+    assert latest.author_role == "ADMIN"
+
+
+def test_read_returns_empty_profile_for_missing_seller(session):
+    """Мягкое поведение намеренное: 404 отдаёт эндпоинт, проверив продавца сам."""
+    assert SellerProfileService(session).read(MISSING_SELLER_ID) == {
+        "row": None,
+        "place": None,
+        "working_hours": None,
+        "short_description": None,
+        "phone": None,
+        "whatsapp": None,
+    }
+
+
+def test_apply_rejects_missing_seller(session, seller):
+    _, user_id = seller
+    with pytest.raises(SellerNotFoundError):
+        SellerProfileService(session).apply(
+            MISSING_SELLER_ID, {"row": "Ряд 3"}, author_user_id=user_id, author_role="ADMIN"
+        )
+
+
+def test_changed_order_does_not_depend_on_request_order(session, seller):
+    """Порядок ответа задаёт PROFILE_FIELDS, а не то, как клиент собрал JSON."""
+    seller_id, user_id = seller
+    changed = SellerProfileService(session).apply(
+        seller_id,
+        {"whatsapp": "+79990000001", "row": "Ряд 3", "place": "Место 1"},
+        author_user_id=user_id,
+        author_role="SELLER",
+    )
+    session.flush()
+    assert changed == ["row", "place", "whatsapp"]
