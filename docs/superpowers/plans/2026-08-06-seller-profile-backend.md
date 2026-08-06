@@ -283,8 +283,8 @@ CREATE TABLE SellerProfileChange
 
     PRIMARY KEY (id),
 
-    INDEX ix_SellerProfileChange_feed (created_at DESC),
-    INDEX ix_SellerProfileChange_seller (seller_id, created_at DESC),
+    INDEX idx_SellerProfileChange_feed (created_at DESC),
+    INDEX idx_SellerProfileChange_seller (seller_id, created_at DESC),
 
     CONSTRAINT fk_SellerProfileChange_seller
         FOREIGN KEY (seller_id) REFERENCES Seller(id)
@@ -1927,6 +1927,15 @@ git commit -m "feat: GET /api/v1/catalog/sellers/{id} — карточка пр�
 ```
 
 Точную формулировку колонок брать по образцу строк про `013_create_administrator.sql` и `014_fix_moderation_status_invariant.sql` — структура таблицы может отличаться от приведённой здесь.
+
+- [ ] **Step 0b: Внести `SellerProfileChange` в нормативные разделы Coding_Standard.md**
+
+В `docs/03-database/Coding_Standard.md`:
+
+- раздел «Исторические таблицы» перечисляет как append-only только `CatalogPublication` — добавить `SellerProfileChange` (журнал изменений профиля тоже пишется только на вставку, записи не редактируются и не удаляются);
+- таблица «Владение данными» не содержит `SellerProfileChange` — добавить строку: владелец — Seller Profile (запись только через `SellerProfileService`), остальные компоненты пишут в неё запрещено.
+
+Если формулировки разделов не позволяют вписать это без искажения смысла — не выдумывать, сообщить и оставить как есть.
 
 - [ ] **Step 1: Описать эндпоинты в REST_API.md**
 
