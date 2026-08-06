@@ -1387,24 +1387,26 @@ from app.api.v1.seller_schemas import (
     SellerProfileUpdateResponse,
     SellerStatusResponse,
 )
-from app.profile.errors import ProfileValidationError
+from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
 
 
-def _profile_response(seller_id: int, name: str, session: Session) -> SellerProfileResponse | JSONResponse:
-    gateway = SellerGateway(session)
-    status = gateway.get_status(seller_id)
-    if status is None:
+def _profile_response(seller_id: int, *, session: Session) -> SellerProfileResponse | JSONResponse:
+    """Одна строка `SellerListRow` вместо двух запросов: она несёт и `name`, и
+    `is_active`, и `user_id`, который всё равно понадобится сервису. Имя
+    продавца берётся отсюда, а не из токена, — иначе хелпером не смог бы
+    воспользоваться админский аналог, у которого токена продавца нет."""
+    seller = SellerGateway(session).find_list_row(seller_id)
+    if seller is None:
         return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
 
     service = SellerProfileService(session)
-    profile = service.read(seller_id)
     return SellerProfileResponse(
         seller_id=seller_id,
-        name=name,
-        status="ACTIVE" if status.is_active else "INACTIVE",
+        name=seller.name,
+        status="ACTIVE" if seller.is_active else "INACTIVE",
         suggested_phone=service.suggested_phone(seller_id),
-        **profile,
+        **service.read(seller_id),
     )
 
 
@@ -1417,7 +1419,7 @@ def get_seller_profile(
     access = resolve_access(access_token)
     if access is None:
         return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
-    return _profile_response(access.seller_id, access.name, session)
+    return _profile_response(access.seller_id, session=session)
 
 
 @router.put("/profile", response_model=SellerProfileUpdateResponse)
@@ -1440,6 +1442,8 @@ def update_seller_profile(
             author_user_id=access.published_by,
             author_role="SELLER",
         )
+    except SellerNotFoundError as exc:
+        return error_response(404, "SELLER_NOT_FOUND", str(exc))
     except ProfileValidationError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
@@ -1618,7 +1622,14 @@ Expected: FAIL — 404 на новых маршрутах
 ```python
 class AdminSellerProfileUpdateRequest(BaseModel):
     """Тот же набор полей, что у продавца, но без access_token — админ
-    аутентифицируется заголовком Authorization (см. REST_API.md, Admin API)."""
+    аутентифицируется заголовком Authorization (см. REST_API.md, Admin API).
+
+    `extra="forbid"` — по той же причине, что и у `SellerProfileUpdateRequest`,
+    и чтобы опечатка в имени поля не давала 422 продавцу и молчаливые 200
+    администратору поверх одного и того же сервиса.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     row: str | None = None
     place: str | None = None
