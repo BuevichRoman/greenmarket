@@ -11,6 +11,7 @@ from app.api.v1.catalog_schemas import (
     ProductGroupsResponse,
     ProductListItem,
     ProductListResponse,
+    SellerCardResponse,
     SellerOfferItem,
 )
 from app.api.v1.schemas import error_response
@@ -64,3 +65,11 @@ def get_product(product_id: int, session: Session = Depends(get_session)) -> Pro
         description=product["description"],
         offers=[SellerOfferItem(**offer) for offer in product["offers"]],
     )
+
+
+@router.get("/sellers/{seller_id}", response_model=SellerCardResponse)
+def get_seller_card(seller_id: int, session: Session = Depends(get_session)) -> SellerCardResponse | JSONResponse:
+    card = CatalogUseCase(session).get_seller_card(seller_id)
+    if card is None:
+        return _not_found(f"Продавец {seller_id} не найден или недоступен")
+    return SellerCardResponse(**card)

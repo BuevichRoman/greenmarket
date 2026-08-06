@@ -41,6 +41,20 @@ class SellerOfferItem(BaseModel):
     photos: list[str]
 
 
+class SellerCardResponse(BaseModel):
+    """Карточка продавца в Customer UI. `status` не отдаётся: неактивный
+    продавец покупателю просто не существует (404)."""
+
+    seller_id: int
+    name: str
+    row: str | None
+    place: str | None
+    working_hours: str | None
+    short_description: str | None
+    phone: str | None
+    whatsapp: str | None
+
+
 class ProductDetailResponse(BaseModel):
     id: int
     name: str
