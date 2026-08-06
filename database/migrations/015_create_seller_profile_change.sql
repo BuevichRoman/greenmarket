@@ -48,8 +48,8 @@ CREATE TABLE SellerProfileChange
 
     PRIMARY KEY (id),
 
-    INDEX ix_SellerProfileChange_feed (created_at DESC),
-    INDEX ix_SellerProfileChange_seller (seller_id, created_at DESC),
+    INDEX idx_SellerProfileChange_feed (created_at DESC),
+    INDEX idx_SellerProfileChange_seller (seller_id, created_at DESC),
 
     CONSTRAINT fk_SellerProfileChange_seller
         FOREIGN KEY (seller_id) REFERENCES Seller(id)
