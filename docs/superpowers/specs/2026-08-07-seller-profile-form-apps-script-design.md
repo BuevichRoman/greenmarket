@@ -92,7 +92,7 @@ apps_script/seller_workspace/
 | Часы работы* | `working_hours` | `input`, maxlength 255 | |
 | Краткое описание | `short_description` | `textarea`, maxlength 2000 | |
 
-Звёздочка — обязательное на Stage 1. `maxlength` равны лимитам `PROFILE_FIELDS`: 255 — ширина `users_prop_items_varchar.value`, 2000 — продуктовый лимит краткого описания.
+Звёздочка в таблице — обязательное на Stage 1; в самой форме такие поля помечены текстом «— обязательно». `maxlength` равны лимитам `PROFILE_FIELDS`: 255 — ширина `users_prop_items_varchar.value`, 2000 — продуктовый лимит краткого описания.
 
 **Сохранение.** Клик «Сохранить» → `saveProfile(changedFields)` с diff → `PUT /api/v1/seller/profile` с `access_token` и только изменёнными ключами → ответ `{changed: [...]}` → диалог закрывается, в таблице `toast()`: «Профиль сохранён» либо «Профиль сохранён. Покупатель не увидит: …» при незаполненных обязательных.
 
