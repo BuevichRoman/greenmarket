@@ -132,6 +132,28 @@ class ModerationResolveResponse(BaseModel):
     moderation_comment: str | None
 
 
+class AdminSellerProfileResponse(BaseModel):
+    """Профиль глазами администратора. От продавцовского `SellerProfileResponse`
+    отличается отсутствием `suggested_phone`: подсказка учётного номера нужна
+    форме продавца при первом заполнении, администратору она только мешает —
+    он правит чужой профиль, а не заполняет свой.
+
+    `status` в ответе есть именно потому, что деактивированный продавец
+    администратору отдаётся (в отличие от покупательской карточки): чаще всего
+    правят как раз такого, и деактивация должна быть видна, а не угадываться.
+    """
+
+    seller_id: int
+    name: str
+    status: str
+    row: str | None
+    place: str | None
+    working_hours: str | None
+    short_description: str | None
+    phone: str | None
+    whatsapp: str | None
+
+
 class AdminSellerProfileUpdateRequest(BaseModel):
     """Тот же набор полей, что у продавца, но без access_token — админ
     аутентифицируется заголовком Authorization (см. REST_API.md, Admin API).
@@ -172,7 +194,12 @@ class SellerProfileChangeItem(BaseModel):
 
 
 class SellerProfileChangeFeedResponse(BaseModel):
+    """`total` считается по тому же условию, что и `changes` (включая
+    `after_id`): без него клиент не отличит полную страницу от обрезанной, а
+    одна правка шести полей вытесняет из выдачи всё остальное."""
+
     changes: list[SellerProfileChangeItem]
+    total: int
 
 
 class ProductUpdateRequest(BaseModel):

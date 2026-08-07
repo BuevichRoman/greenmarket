@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.admin.admin_access import AdminAccess
 from app.api.v1.admin import admin_access_denied, get_admin_access
 from app.api.v1.admin_schemas import (
+    AdminSellerProfileResponse,
     AdminSellerProfileUpdateRequest,
     AdminSellerProfileUpdateResponse,
     SellerProfileChangeFeedResponse,
@@ -27,6 +28,34 @@ from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+@router.get("/sellers/{seller_id}/profile", response_model=AdminSellerProfileResponse)
+def get_seller_profile(
+    seller_id: int,
+    session: Session = Depends(get_session),
+    access: AdminAccess | None = Depends(get_admin_access),
+) -> AdminSellerProfileResponse | JSONResponse:
+    """Профиль продавца для формы редактирования в Admin Cabinet. Другого
+    способа прочитать его у администратора нет: продавцовский GET требует
+    access_token, список продавцов профиля не содержит, а покупательская
+    карточка скрывает деактивированных — то есть ровно тех, кого чаще всего и
+    правят.
+    """
+    if access is None:
+        return admin_access_denied()
+
+    # find_list_row, а не get_status: имя и is_active приезжают одной строкой.
+    seller = SellerGateway(session).find_list_row(seller_id)
+    if seller is None:
+        return error_response(404, "SELLER_NOT_FOUND", f"Продавец {seller_id} не найден")
+
+    return AdminSellerProfileResponse(
+        seller_id=seller_id,
+        name=seller.name,
+        status="ACTIVE" if seller.is_active else "INACTIVE",
+        **SellerProfileService(session).read(seller_id),
+    )
 
 
 @router.put("/sellers/{seller_id}/profile", response_model=AdminSellerProfileUpdateResponse)
@@ -61,13 +90,15 @@ def update_seller_profile(
 @router.get("/profile-changes", response_model=SellerProfileChangeFeedResponse)
 def list_profile_changes(
     limit: int = Query(default=50, ge=1, le=200),
+    after_id: int | None = Query(default=None),
     session: Session = Depends(get_session),
     access: AdminAccess | None = Depends(get_admin_access),
 ) -> SellerProfileChangeFeedResponse | JSONResponse:
     if access is None:
         return admin_access_denied()
 
-    changes = SellerProfileChangeRepository(session).list_recent(limit=limit)
+    repository = SellerProfileChangeRepository(session)
+    changes = repository.list_recent(limit=limit, after_id=after_id)
     names = SellerGateway(session).list_seller_names([change.seller_id for change in changes])
 
     return SellerProfileChangeFeedResponse(
@@ -84,5 +115,6 @@ def list_profile_changes(
                 created_at=change.created_at,
             )
             for change in changes
-        ]
+        ],
+        total=repository.count_recent(after_id=after_id),
     )

@@ -2,8 +2,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.admin.admin_activation import issue_admin_activation_code
+from app.api.v1.admin_schemas import (
+    AdminSellerProfileResponse,
+    AdminSellerProfileUpdateRequest,
+)
 from app.infrastructure.database import get_session
 from app.main import app
+from app.profile.fields import PROFILE_FIELDS
 from app.profile.seller_profile_service import SellerProfileService
 
 
@@ -283,3 +288,221 @@ def test_feed_requires_admin_token(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "ADMIN_ACCESS_DENIED"
+
+
+def test_admin_update_request_accepts_exactly_the_profile_fields():
+    # Зеркало теста продавцовской модели. Седьмое поле, добавленное в fields.py
+    # и не добавленное сюда, сервисом принималось бы, а extra="forbid" отвечал
+    # бы админу 422 — то самое расхождение между двумя потребителями одного
+    # сервиса, ради предотвращения которого forbid и ставился.
+    assert set(AdminSellerProfileUpdateRequest.model_fields) == {field.name for field in PROFILE_FIELDS}
+
+
+def test_admin_profile_response_carries_exactly_the_profile_fields():
+    # suggested_phone здесь отсутствует намеренно: это подсказка форме продавца
+    # при первом заполнении, админу она не нужна.
+    assert set(AdminSellerProfileResponse.model_fields) == {"seller_id", "name", "status"} | {
+        field.name for field in PROFILE_FIELDS
+    }
+
+
+def test_admin_reads_seller_profile(committing_session):
+    # Без чтения админская правка бессмысленна: форму редактирования нечем
+    # заполнить — продавцовский GET требует access_token, которого у админа нет.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ чтения")
+    seller_id, _ = insert_seller(committing_session, name="Пасека Ромашково")
+    client.put(
+        f"/api/v1/admin/sellers/{seller_id}/profile",
+        json={"row": "Ряд 3", "phone": "79991112233"},
+        headers=headers,
+    )
+
+    response = client.get(f"/api/v1/admin/sellers/{seller_id}/profile", headers=headers)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"seller_id", "name", "status"} | {field.name for field in PROFILE_FIELDS}
+    assert body["seller_id"] == seller_id
+    assert body["name"] == "Пасека Ромашково"
+    assert body["status"] == "ACTIVE"
+    assert body["row"] == "Ряд 3"
+    assert body["phone"] == "79991112233"
+    assert body["place"] is None
+    assert "suggested_phone" not in body
+
+
+def test_admin_reads_profile_of_deactivated_seller(committing_session):
+    # Покупательская карточка на деактивированного продавца отдаёт 404, но
+    # админу нужен именно он: чаще всего правят как раз такого. Отсюда и status
+    # в ответе — чтобы деактивация была видна, а не угадывалась.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ деактивированного")
+    seller_id, _ = insert_seller(committing_session, name="Пасека деактивированная")
+    committing_session.execute(
+        text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id}
+    )
+
+    response = client.get(f"/api/v1/admin/sellers/{seller_id}/profile", headers=headers)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["status"] == "INACTIVE"
+    assert response.json()["seller_id"] == seller_id
+
+
+def test_admin_profile_read_rejects_unknown_seller(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ чтения несуществующего")
+
+    response = client.get("/api/v1/admin/sellers/999999/profile", headers=headers)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SELLER_NOT_FOUND"
+
+
+def test_admin_profile_read_requires_admin_token(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+    seller_id, _ = insert_seller(committing_session, name="Пасека чтения без токена")
+
+    response = client.get(f"/api/v1/admin/sellers/{seller_id}/profile")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "ADMIN_ACCESS_DENIED"
+
+
+def test_admin_update_clears_field_with_empty_string(committing_session):
+    # Та же семантика, что у продавца: отсутствие ключа — «не трогать», пустая
+    # строка — «очистить». Через HTTP она была доказана только на одной стороне.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ очистки")
+    seller_id, _ = insert_seller(committing_session, name="Пасека очистки")
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 3"}, headers=headers)
+
+    response = client.put(
+        f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": ""}, headers=headers
+    )
+    saved = client.get(f"/api/v1/admin/sellers/{seller_id}/profile", headers=headers).json()
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["changed"] == ["row"]
+    assert saved["row"] is None
+
+
+def test_admin_update_without_changes_returns_empty_changed(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ без изменений")
+    seller_id, _ = insert_seller(committing_session, name="Пасека без изменений")
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 3"}, headers=headers)
+
+    response = client.put(
+        f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 3"}, headers=headers
+    )
+
+    # Повторная отправка формы без правок не должна попадать в ленту админа:
+    # иначе лента забьётся строками «изменил row на то же самое».
+    feed = client.get("/api/v1/admin/profile-changes", headers=headers).json()
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["changed"] == []
+    assert len([c for c in feed["changes"] if c["seller_id"] == seller_id]) == 1
+
+
+def test_admin_update_returns_changed_in_profile_field_order(committing_session):
+    # Порядок changed следует PROFILE_FIELDS, а не порядку ключей в запросе:
+    # ответ не должен зависеть от того, как клиент собрал JSON. Все остальные
+    # тесты оборачивают changed в sorted() и эту гарантию не проверяют.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ порядка полей")
+    seller_id, _ = insert_seller(committing_session, name="Пасека порядка полей")
+
+    response = client.put(
+        f"/api/v1/admin/sellers/{seller_id}/profile",
+        json={"whatsapp": "79990000001", "row": "Ряд 3", "place": "Место 12"},
+        headers=headers,
+    )
+
+    app.dependency_overrides.clear()
+    assert response.json()["changed"] == ["row", "place", "whatsapp"]
+
+
+def latest_change_id(client, headers) -> int:
+    """Максимальный id ленты на текущий момент. Лента глобальная, и привязка к
+    абсолютным значениям сделала бы тесты зависимыми от содержимого базы."""
+    body = client.get("/api/v1/admin/profile-changes", params={"limit": 1}, headers=headers).json()
+    return body["changes"][0]["id"] if body["changes"] else 0
+
+
+def test_feed_reports_total_beyond_the_page(committing_session):
+    # Без total Cabinet не отличит полную страницу от обрезанной и не поймёт,
+    # есть ли что-то за пределами выдачи.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ total")
+    seller_id, _ = insert_seller(committing_session, name="Пасека total")
+    baseline = latest_change_id(client, headers)
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 1"}, headers=headers)
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"place": "Место 2"}, headers=headers)
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"phone": "79990000000"}, headers=headers)
+
+    response = client.get(
+        "/api/v1/admin/profile-changes", params={"limit": 2, "after_id": baseline}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["changes"]) == 2
+    assert body["total"] == 3
+
+
+def test_feed_after_id_returns_only_newer_changes(committing_session):
+    # «Что нового с прошлого раза»: клиент запоминает максимальный id выдачи —
+    # иначе замену уведомлений приходится строить на дедупликации всей ленты.
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ after_id")
+    seller_id, _ = insert_seller(committing_session, name="Пасека after_id")
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 1"}, headers=headers)
+    seen = latest_change_id(client, headers)
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"place": "Место 2"}, headers=headers)
+
+    response = client.get(
+        "/api/v1/admin/profile-changes", params={"after_id": seen}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    body = response.json()
+    assert [c["field"] for c in body["changes"]] == ["place"]
+    assert body["total"] == 1
+    assert all(c["id"] > seen for c in body["changes"])
+
+
+def test_feed_after_id_at_latest_change_returns_nothing(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+    headers, _ = admin_headers(committing_session, client, name="Админ пустой ленты")
+    seller_id, _ = insert_seller(committing_session, name="Пасека пустой ленты")
+    client.put(f"/api/v1/admin/sellers/{seller_id}/profile", json={"row": "Ряд 1"}, headers=headers)
+
+    response = client.get(
+        "/api/v1/admin/profile-changes",
+        params={"after_id": latest_change_id(client, headers)},
+        headers=headers,
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {"changes": [], "total": 0}
