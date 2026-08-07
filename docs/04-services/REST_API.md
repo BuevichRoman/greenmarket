@@ -55,7 +55,7 @@ REST API первого этапа состоит из следующих раз
 
 ## Seller API
 
-Используется Seller Cabinet (и Apps Script карточки товара — обмен `activation_code` на `access_token`, см. `apps_script/product_card/`).
+Используется Seller Cabinet (и Apps Script карточки товара — обмен `activation_code` на `access_token`, см. `apps_script/seller_workspace/`).
 
 - `POST /api/v1/seller/activate` — первичная привязка персональной копии Google Sheets к продавцу. Тело `{"activation_code": str, "spreadsheet_id": str}`. Ответ — `{"access_token": str}`, который клиент сохраняет и в дальнейшем передаёт как обычный `access_token` во все остальные Seller/Publication-эндпоинты. Код активации одноразовый, с TTL (7 дней), выдаётся администратором через `POST /api/v1/admin/sellers` (см. Admin API) — самостоятельной регистрации нет, `Seller.user_id` обязан ссылаться на уже существующего пользователя платформы (см. `Seller_Profile.md`, `003_create_seller.sql`).
 - `GET /api/v1/seller/catalog?access_token=...` — статус-сводка продавца (`is_active`, `current_catalog_version`, `published_product_count`, `last_published_at`), не построчный список товаров.

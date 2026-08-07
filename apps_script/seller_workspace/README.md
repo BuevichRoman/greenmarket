@@ -12,14 +12,14 @@ Container-bound Google Apps Script — привязывается к конкр�
 2. `Расширения → Apps Script` — откроется Script Editor привязанного проекта
    (если ещё не создан — Google создаст пустой проект автоматически).
 3. Заменить содержимое `appsscript.json` (иконка шестерёнки слева →
-   `Показать файл манифеста`) на содержимое `apps_script/product_card/appsscript.json`
+   `Показать файл манифеста`) на содержимое `apps_script/seller_workspace/appsscript.json`
    из этого репозитория.
 4. Создать/заменить файл `Code.gs` — вставить содержимое
-   `apps_script/product_card/Code.gs`.
+   `apps_script/seller_workspace/Code.gs`.
 5. В строке `API_BASE_URL` заменить `https://CHANGE_ME.example.com/api/v1` на
    реальный адрес backend.
 6. Создать HTML-файл `Card` (`Файл → Создать → HTML-файл`, имя ровно `Card`) —
-   вставить содержимое `apps_script/product_card/Card.html`.
+   вставить содержимое `apps_script/seller_workspace/Card.html`.
 7. Сохранить проект (`Ctrl+S`/`Cmd+S`), закрыть Script Editor, обновить страницу
    таблицы — в меню должен появиться пункт «GreenMarket».
 
