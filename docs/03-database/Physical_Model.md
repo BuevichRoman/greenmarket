@@ -11,9 +11,9 @@
 
 Подсистема каталога состоит из следующих сущностей.
 
-Платформенная таблица (существует на платформе, не создаётся заново): `users` (в БД `aristotel_taxi`). Отдельной таблицы User в GreenMarket нет — поля `moderator_id` (SellerProduct) и `published_by` (CatalogPublication) ссылаются напрямую на `users.id_user`.
+Платформенная таблица (существует на платформе, не создаётся заново): `users` (в БД `aristotel_taxi`). Отдельной таблицы User в GreenMarket нет — поля `moderator_id` (SellerProduct), `published_by` (CatalogPublication) и `author_user_id` (SellerProfileChange) ссылаются напрямую на `users.id_user`.
 
-Новые таблицы GreenMarket: ProductGroup, Product, Seller, Photo, SellerProduct, SellerProductPhoto, CatalogPublication.
+Новые таблицы GreenMarket: ProductGroup, Product, Seller, Photo, SellerProduct, SellerProductPhoto, CatalogPublication, SellerProfileChange.
 
 ## Общая схема
 
@@ -22,11 +22,11 @@ Seller
 │
 │1
 │
-├──────────────┐
-│              │
-│N             │N
-▼              ▼
-SellerProduct   CatalogPublication
+├──────────────┬───────────────────┐
+│              │                   │
+│N             │N                  │N
+▼              ▼                   ▼
+SellerProduct   CatalogPublication  SellerProfileChange
 │
 │N
 │
@@ -110,6 +110,22 @@ Photo
 
 **Особенности:** новая таблица GreenMarket, устроена так же, как учётные данные в `Seller` (одноразовый код → постоянный токен). Платформенная роль `users.id_role` в доступе не участвует — доступ определяется наличием записи в этой таблице. `user_id` обязателен потому, что `SellerProduct.moderator_id` — FK на `users(id_user)`. Отзыв доступа — `is_active = FALSE`, без удаления записи.
 
+## SellerProfileChange
+
+**Назначение:** журнал изменений полей профиля продавца (миграция 015) — ряд, место, часы работы, краткое описание, телефон, WhatsApp.
+
+**Почему таблица существует:** сами значения профиля хранятся не в GreenMarket, а в платформенном механизме расширяемых свойств (`users_prop` + `users_prop_items_varchar|text`, см. [Seller_Profile.md](../02-domain/Seller_Profile.md), §10a). Там запись — это тройка «свойство, пользователь, значение»: ни автора, ни времени изменения в ней физически нет, и прежнее значение затирается новым. Всё, что нужно знать администратору («кто и когда изменил»), может храниться только отдельной таблицей на стороне GreenMarket.
+
+**Основные поля:** `id`, `seller_id`, `field`, `old_value`, `new_value`, `author_user_id`, `author_role`, `created_at`.
+
+**`field`** хранит имя поля в терминах API GreenMarket (`row`, `place`, `working_hours`, `short_description`, `phone`, `whatsapp`), а не ключ `var` платформенного свойства: журнал читает Admin Cabinet, который знает поля профиля по именам REST API, а не по внутренним ключам чужой конфигурационной таблицы.
+
+**`author_user_id`** — платформенный `users.id_user` (FK на `users(id_user)`, `ON DELETE RESTRICT`), одинаково пригодный и для продавца, и для администратора: `Administrator.user_id` тоже ссылается на `users`. Роль автора хранится отдельным полем `author_role` со значениями `SELLER` и `ADMIN`, потому что по одному `id_user` эти два случая неразличимы — администратор технически тоже пользователь платформы. Перечень значений закреплён `CHECK`, а не `ENUM` (см. [Coding_Standard.md](Coding_Standard.md), раздел «Статусы»).
+
+**`old_value` / `new_value`:** `NULL` означает «значения не было» (поле не было заполнено) и «поле очищено» соответственно. Это не то же самое, что пустая строка: в `users_prop_items_*` колонка `value` объявлена `NOT NULL`, поэтому незаполненное поле профиля представлено там отсутствием строки, а не пустым значением.
+
+**Особенности:** историческая таблица, append-only — запись создаётся на каждое реально изменившееся поле (повторное сохранение того же значения не пишет ничего), изменение и удаление существующих записей запрещены. Единственный компонент, который в неё пишет, — Seller Profile (`SellerProfileService`); внешние ключи на `Seller` и `users` объявлены с `ON DELETE RESTRICT`. Индексы: `(created_at DESC)` для общей ленты изменений в Admin Cabinet и `(seller_id, created_at DESC)` для истории одного продавца.
+
 ## Photo
 
 **Назначение:** метаданные фотографий товаров продавцов. Временное решение Stage 1 — сами файлы хранятся в S3, таблица хранит только ключ объекта.
@@ -128,10 +144,11 @@ Photo
 | SellerProduct → SellerProductPhoto | один ко многим |
 | Photo → SellerProductPhoto | один ко многим |
 | Seller → CatalogPublication | один ко многим |
+| Seller → SellerProfileChange | один ко многим |
 
 ## Ограничения модели
 
-Физическое удаление не используется для Product, SellerProduct, CatalogPublication. Для прекращения использования применяются логические признаки активности и публикации (`is_active`, `is_published`).
+Физическое удаление не используется для Product, SellerProduct, CatalogPublication, SellerProfileChange. Для прекращения использования применяются логические признаки активности и публикации (`is_active`, `is_published`).
 
 ## Владение данными
 
@@ -144,6 +161,7 @@ Photo
 | CatalogPublication | Publication Service |
 | Seller | Platform |
 | Photo | Publication Service |
+| SellerProfileChange | Seller Profile (запись только через `SellerProfileService`) |
 
 ## Основные принципы
 
