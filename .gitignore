@@ -16,5 +16,8 @@ __pycache__/
 .pytest_cache/
 .env
 
+# Отметка развёрнутой версии — пишет деплой на сервере, в git не место
+backend/DEPLOYED_SHA
+
 # Google Service Account credentials — never commit
 google-service-account*.json

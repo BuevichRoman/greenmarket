@@ -11,6 +11,10 @@ bash /opt/greenmarket/ci/apply-migrations.sh
 echo "=== Backend ==="
 cd /opt/greenmarket/backend
 /root/.local/bin/uv sync
+# Отметка развёрнутой версии — её отдаёт GET /health, по ней снаружи видно,
+# отстал ли прод от main (см. app/core/deployed_commit.py). Пишется до
+# рестарта, чтобы поднявшийся процесс сразу знал свою версию. Файл не в git.
+git -C /opt/greenmarket rev-parse HEAD > /opt/greenmarket/backend/DEPLOYED_SHA
 systemctl restart greenmarket-api
 sleep 2
 systemctl is-active greenmarket-api
