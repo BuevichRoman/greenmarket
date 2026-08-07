@@ -250,6 +250,12 @@ git commit -m "test: стаб платформенных users_prop для пр�
 -- Note      : old_value/new_value NULL означает «значения не было» — в
 --             users_prop_items_* колонка value объявлена NOT NULL, поэтому
 --             пустое поле там представлено отсутствием строки, а не NULL.
+-- Note      : отдельного индекса под ленту нет намеренно (убран после ревью
+--             документации). Оба запроса журнала сортируют по id, а не по
+--             created_at — пачка полей из одного запроса получает одинаковую
+--             метку времени с точностью до секунды. Глобальную ленту
+--             обслуживает PRIMARY KEY, внутри idx_..._seller InnoDB и так
+--             дописывает id; индекс по created_at остался бы мёртвым.
 -- Note      : author_role — VARCHAR с CHECK, а не ENUM: docs/03-database/
 --             Coding_Standard.md, раздел «Статусы», запрещает ENUM, чтобы
 --             расширение перечня не требовало изменения структуры БД. Образец —
@@ -285,8 +291,7 @@ CREATE TABLE SellerProfileChange
 
     PRIMARY KEY (id),
 
-    INDEX idx_SellerProfileChange_feed (created_at DESC),
-    INDEX idx_SellerProfileChange_seller (seller_id, created_at DESC),
+    INDEX idx_SellerProfileChange_seller (seller_id),
 
     CONSTRAINT fk_SellerProfileChange_seller
         FOREIGN KEY (seller_id) REFERENCES Seller(id)
