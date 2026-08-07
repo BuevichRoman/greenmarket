@@ -115,3 +115,23 @@ class Administrator(Base):
     activated_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+class SellerProfileChange(Base):
+    """Журнал изменений полей профиля продавца (миграция 015).
+
+    Сами значения профиля живут в платформенных `users_prop_items_*`, где нет
+    ни автора, ни времени — отсюда отдельная таблица GreenMarket. `author_role`
+    хранится строкой ('SELLER'/'ADMIN'): по одному `author_user_id` роль не
+    восстановить, администратор тоже пользователь платформы.
+    """
+
+    __tablename__ = "SellerProfileChange"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seller_id: Mapped[int] = mapped_column(Integer)
+    field: Mapped[str] = mapped_column(String(64))
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    author_user_id: Mapped[int] = mapped_column(Integer)
+    author_role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

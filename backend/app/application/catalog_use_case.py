@@ -7,6 +7,7 @@ from app.infrastructure.repositories.seller_product_repository import SellerProd
 from app.platform.photo_gateway import PhotoGateway
 from app.platform.photo_storage import build_photo_url
 from app.platform.seller_gateway import SellerGateway
+from app.profile.seller_profile_service import SellerProfileService
 
 
 def _photo_urls(s3_keys: list[str]) -> list[str]:
@@ -150,3 +151,15 @@ class CatalogUseCase:
                 for offer in offers_sorted
             ],
         }
+
+    def get_seller_card(self, seller_id: int) -> dict | None:
+        """Карточка продавца для покупателя (Seller_Profile.md, §9).
+
+        Деактивированный продавец покупателю не показывается — то же правило,
+        по которому его товары исчезают из каталога.
+        """
+        row = self.seller_gateway.find_list_row(seller_id)
+        if row is None or not row.is_active:
+            return None
+        profile = SellerProfileService(self.session).read(seller_id)
+        return {"seller_id": row.seller_id, "name": row.name, **profile}
