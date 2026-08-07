@@ -33,3 +33,36 @@ function getProfileData() {
   var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
   return handleApiResponse(response, 200);
 }
+
+// changedFields — только реально изменённые поля (diff считает Profile.html). PUT
+// трактует отсутствие ключа как «не трогать», поэтому отправка всей формы затёрла бы
+// правки администратора, сделанные пока диалог был открыт. Пустая строка — очистка поля.
+// missingFields — незаполненные обязательные, нужны только для текста toast'а.
+function saveProfile(changedFields, missingFields) {
+  var accessToken = getOrPromptAccessToken();
+  if (!accessToken) throw new Error('Доступ не активирован — сохранение отменено.');
+
+  // Белый список: у PUT extra="forbid", лишний ключ в теле — это 422, а не игнор.
+  var payload = { access_token: accessToken };
+  PROFILE_FIELDS.forEach(function (name) {
+    if (changedFields.hasOwnProperty(name)) payload[name] = changedFields[name];
+  });
+
+  var response = UrlFetchApp.fetch(API_BASE_URL + '/seller/profile', {
+    method: 'put',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+  var changed = handleApiResponse(response, 200).changed;
+
+  // Диалог к моменту показа toast'а уже закрыт формой — сообщение видно в самой таблице.
+  SpreadsheetApp.getActiveSpreadsheet().toast(profileSavedMessage_(missingFields), 'GreenMarket', 8);
+  return changed;
+}
+
+function profileSavedMessage_(missingFields) {
+  if (!missingFields || missingFields.length === 0) return 'Профиль сохранён.';
+  var names = missingFields.map(function (name) { return PROFILE_FIELD_LABELS[name]; });
+  return 'Профиль сохранён. Покупатель не увидит: ' + names.join(', ') + '.';
+}
