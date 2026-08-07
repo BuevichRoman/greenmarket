@@ -22,3 +22,14 @@ function openSellerProfile() {
   var html = HtmlService.createHtmlOutputFromFile('Profile').setWidth(560).setHeight(700);
   SpreadsheetApp.getUi().showModalDialog(html, 'Профиль продавца');
 }
+
+// Ответ отдаётся форме как есть: {seller_id, name, status, row, place, working_hours,
+// short_description, phone, whatsapp, suggested_phone}.
+function getProfileData() {
+  var accessToken = getOrPromptAccessToken();
+  if (!accessToken) throw new Error('Доступ не активирован — профиль недоступен.');
+
+  var url = API_BASE_URL + '/seller/profile?access_token=' + encodeURIComponent(accessToken);
+  var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+  return handleApiResponse(response, 200);
+}
