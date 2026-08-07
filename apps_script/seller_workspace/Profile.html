@@ -32,26 +32,26 @@
   </div>
 
   <label>Телефон <span class="hint">— обязательно</span></label>
-  <input type="text" id="phone" maxlength="255">
+  <input type="text" id="phone" maxlength="255" disabled>
   <div class="suggest" id="phoneSuggest" style="display: none;">
     В учётной записи указан <span id="suggestedPhoneText"></span> —
     <button type="button" onclick="useSuggestedPhone()">подставить</button>
   </div>
 
   <label>WhatsApp <span class="hint">— обязательно</span></label>
-  <input type="text" id="whatsapp" maxlength="255">
+  <input type="text" id="whatsapp" maxlength="255" disabled>
 
   <label>Ряд <span class="hint">— обязательно</span></label>
-  <input type="text" id="row" maxlength="255">
+  <input type="text" id="row" maxlength="255" disabled>
 
   <label>Место <span class="hint">— обязательно</span></label>
-  <input type="text" id="place" maxlength="255">
+  <input type="text" id="place" maxlength="255" disabled>
 
   <label>Часы работы <span class="hint">— обязательно, например 09:00–18:00</span></label>
-  <input type="text" id="working_hours" maxlength="255">
+  <input type="text" id="working_hours" maxlength="255" disabled>
 
   <label>Краткое описание <span class="hint">— не обязательно</span></label>
-  <textarea id="short_description" rows="3" maxlength="2000"></textarea>
+  <textarea id="short_description" rows="3" maxlength="2000" disabled></textarea>
 
   <div class="warning" id="warning"></div>
 
@@ -98,6 +98,7 @@
         loaded[name] = initial.trim();
         var element = document.getElementById(name);
         element.value = initial;
+        element.disabled = false;
         element.addEventListener('input', refreshHints);
       });
 
@@ -167,7 +168,7 @@
         setStatus('');
       })
       .withFailureHandler(function (err) {
-        setStatus('');
+        setStatus('Профиль не загружен — закройте окно и откройте заново.');
         alert('Не удалось загрузить профиль: ' + err.message);
       })
       .getProfileData();

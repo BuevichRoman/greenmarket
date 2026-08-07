@@ -23,11 +23,22 @@ function openSellerProfile() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Профиль продавца');
 }
 
+// Внутри открытого диалога код активации не запрашиваем: ui.prompt вытеснил бы
+// форму вместе с введённым текстом (Sheets держит одно модальное окно). Токен
+// кладёт openSellerProfile() до открытия диалога; исчезнуть он может только если
+// handleApiResponse стёр его на 403 — тогда просим переоткрыть форму.
+function requireAccessToken_() {
+  var token = PropertiesService.getDocumentProperties().getProperty(ACCESS_TOKEN_PROPERTY);
+  if (!token) {
+    throw new Error('Доступ к GreenMarket больше не действует. Закройте окно и откройте «Профиль продавца» заново — книга запросит код активации.');
+  }
+  return token;
+}
+
 // Ответ отдаётся форме как есть: {seller_id, name, status, row, place, working_hours,
 // short_description, phone, whatsapp, suggested_phone}.
 function getProfileData() {
-  var accessToken = getOrPromptAccessToken();
-  if (!accessToken) throw new Error('Доступ не активирован — профиль недоступен.');
+  var accessToken = requireAccessToken_();
 
   var url = API_BASE_URL + '/seller/profile?access_token=' + encodeURIComponent(accessToken);
   var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
@@ -39,8 +50,7 @@ function getProfileData() {
 // правки администратора, сделанные пока диалог был открыт. Пустая строка — очистка поля.
 // missingFields — незаполненные обязательные, нужны только для текста toast'а.
 function saveProfile(changedFields, missingFields) {
-  var accessToken = getOrPromptAccessToken();
-  if (!accessToken) throw new Error('Доступ не активирован — сохранение отменено.');
+  var accessToken = requireAccessToken_();
 
   // Белый список: у PUT extra="forbid", лишний ключ в теле — это 422, а не игнор.
   var payload = { access_token: accessToken };
@@ -56,7 +66,9 @@ function saveProfile(changedFields, missingFields) {
   });
   var changed = handleApiResponse(response, 200).changed;
 
-  // Диалог к моменту показа toast'а уже закрыт формой — сообщение видно в самой таблице.
+  // toast() вызывается здесь, на сервере, ещё до возврата значения — диалог закрывает
+  // сама форма позже, в своём success-handler'е. Toast висит 8 секунд и переживает
+  // закрытие диалога, так что сообщение в любом случае остаётся видно в таблице.
   SpreadsheetApp.getActiveSpreadsheet().toast(profileSavedMessage_(missingFields), 'GreenMarket', 8);
   return changed;
 }
