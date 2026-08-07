@@ -162,6 +162,11 @@ def test_seller_card_returns_profile_fields(committing_session):
     # профиле: седьмое поле, добавленное в Stage 2, должно уронить этот тест, а
     # не тихо не доехать до HTTP-контракта (SellerCardResponse(**card) лишние
     # ключи молча отбросит).
+    #
+    # Равенство держится ровно потому, что все поля Stage 1 публичны
+    # (Seller_Profile.md, §7). Появление непубличного поля — повод осознанно
+    # переписать этот ассерт под фильтр в get_seller_card, а не дописать поле
+    # в карточку, чтобы тест позеленел.
     assert set(body) == {"seller_id", "name"} | {field.name for field in PROFILE_FIELDS}
 
 
@@ -185,6 +190,7 @@ def test_seller_card_404_for_missing_seller(committing_session):
 
     app.dependency_overrides.clear()
     assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
 
 
 def test_seller_card_never_exposes_platform_phone(committing_session):

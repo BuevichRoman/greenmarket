@@ -32,6 +32,17 @@ class ProfileField:
 # short_description лежит в users_prop_items_text; ограничение 2000 — наше
 # продуктовое, а не схемное: краткое описание в карточке продавца
 # (Seller_Profile.md, §9), не статья.
+#
+# Все поля Stage 1 публичны — Seller_Profile.md, §7: покупателю показываются
+# все поля профиля, кроме системных. Поэтому карточка покупателя собирается
+# как `{seller_id, name, **profile}` (app/application/catalog_use_case.py,
+# get_seller_card), и тесты сверяют её состав прямо с этим кортежем.
+#
+# Отсюда следствие для Stage 2: добавленное сюда поле по умолчанию уезжает на
+# анонимный эндпоинт. Если новое поле покупателю показывать нельзя, это
+# решение принимается здесь и в get_seller_card — фильтром на стороне карточки
+# (у платформенного свойства для этого есть колонка `users_prop.visibility`), а
+# не дописыванием поля в SellerCardResponse ради зелёного теста.
 PROFILE_FIELDS: tuple[ProfileField, ...] = (
     ProfileField("row", "gm_seller_row", VALUE_TYPE_VARCHAR, 255),
     ProfileField("place", "gm_seller_place", VALUE_TYPE_VARCHAR, 255),
