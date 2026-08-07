@@ -34,7 +34,7 @@
   <label>Телефон <span class="hint">— обязательно</span></label>
   <input type="text" id="phone" maxlength="255">
   <div class="suggest" id="phoneSuggest" style="display: none;">
-    В учётной записи указан <span id="suggestedPhone"></span> —
+    В учётной записи указан <span id="suggestedPhoneText"></span> —
     <button type="button" onclick="useSuggestedPhone()">подставить</button>
   </div>
 
@@ -56,8 +56,8 @@
   <div class="warning" id="warning"></div>
 
   <div class="actions">
-    <button class="primary" id="saveButton" onclick="save()">Сохранить</button>
-    <button class="secondary" onclick="google.script.host.close()">Отмена</button>
+    <button class="primary" id="saveButton" onclick="save()" disabled>Сохранить</button>
+    <button class="secondary" id="cancelButton" onclick="google.script.host.close()">Отмена</button>
   </div>
   <div id="status"></div>
 
@@ -95,7 +95,7 @@
 
       FIELDS.forEach(function (name) {
         var initial = (data[name] === null || data[name] === undefined) ? '' : String(data[name]);
-        loaded[name] = initial;
+        loaded[name] = initial.trim();
         var element = document.getElementById(name);
         element.value = initial;
         element.addEventListener('input', refreshHints);
@@ -103,6 +103,7 @@
 
       suggestedPhone = data.suggested_phone || null;
       refreshHints();
+      document.getElementById('saveButton').disabled = false;
     }
 
     // Телефон профиля — витринный контакт, его видит покупатель; учётный номер
@@ -117,8 +118,9 @@
     }
 
     function refreshHints() {
+      setStatus('');
       var showSuggest = Boolean(suggestedPhone) && value('phone') === '';
-      document.getElementById('suggestedPhone').textContent = suggestedPhone || '';
+      document.getElementById('suggestedPhoneText').textContent = suggestedPhone || '';
       document.getElementById('phoneSuggest').style.display = showSuggest ? 'block' : 'none';
 
       var missing = missingFields();
@@ -143,6 +145,7 @@
       }
       setStatus('Сохранение…');
       document.getElementById('saveButton').disabled = true;
+      document.getElementById('cancelButton').disabled = true;
       google.script.run
         .withSuccessHandler(function () {
           google.script.host.close();
@@ -151,6 +154,7 @@
           // Форма остаётся открытой: это единственное место, где живёт введённый текст.
           setStatus('');
           document.getElementById('saveButton').disabled = false;
+          document.getElementById('cancelButton').disabled = false;
           alert('Ошибка сохранения: ' + err.message);
         })
         .saveProfile(diff, missingFields());
