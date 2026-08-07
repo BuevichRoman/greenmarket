@@ -48,8 +48,15 @@ CREATE TABLE SellerProfileChange
 
     PRIMARY KEY (id),
 
-    INDEX idx_SellerProfileChange_feed (created_at DESC),
-    INDEX idx_SellerProfileChange_seller (seller_id, created_at DESC),
+    -- Отдельного индекса под ленту нет намеренно. Оба запроса журнала
+    -- (глобальная лента и история одного продавца) сортируют по id, а не по
+    -- created_at: несколько полей, изменённых одним запросом, получают
+    -- одинаковую метку времени с точностью до секунды, и порядок внутри такой
+    -- пачки был бы неопределённым. Глобальную ленту обслуживает PRIMARY KEY,
+    -- а внутри idx_SellerProfileChange_seller InnoDB и так дописывает id, так
+    -- что ORDER BY id DESC внутри продавца тоже покрыт. Индекс по created_at
+    -- при этих запросах остался бы мёртвым.
+    INDEX idx_SellerProfileChange_seller (seller_id),
 
     CONSTRAINT fk_SellerProfileChange_seller
         FOREIGN KEY (seller_id) REFERENCES Seller(id)
