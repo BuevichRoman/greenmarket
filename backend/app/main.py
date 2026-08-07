@@ -14,6 +14,7 @@ from app.api.v1.catalog import router as catalog_router
 from app.api.v1.photos import router as photos_router
 from app.api.v1.publications import router as publications_router
 from app.api.v1.seller import router as seller_router
+from app.core.deployed_commit import read_deployed_commit
 from app.infrastructure.database import get_session
 
 app = FastAPI(
@@ -52,9 +53,12 @@ async def validation_exception_handler(request, exc: RequestValidationError):
 
 @app.get("/health")
 def health(session: Session = Depends(get_session)):
+    # `commit` присутствует всегда, в том числе как null: проверка расхождения
+    # снаружи должна отличать «прод не знает своей версии» от «прод не ответил».
+    commit = read_deployed_commit()
     try:
         session.execute(text("SELECT 1"))
     except OperationalError as exc:
         detail = str(exc.orig) if exc.orig else str(exc)
-        return {"status": "DOWN", "database": detail}
-    return {"status": "UP", "database": "UP"}
+        return {"status": "DOWN", "database": detail, "commit": commit}
+    return {"status": "UP", "database": "UP", "commit": commit}

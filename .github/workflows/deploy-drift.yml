@@ -1,0 +1,86 @@
+# Ежедневная проверка, что прод не отстал от main.
+#
+# Зачем. Деплой (deploy.yml) о своём падении никак не сообщает: 06.08.2026 он
+# упал на подготовке раннера («Failed to resolve action download info: Service
+# Unavailable» — сбой на стороне GitHub, до сервера подключение не дошло), и
+# прод простоял сутки позади main, пока это не заметили случайно. Проверять
+# каждый конкретный способ сломаться бессмысленно — проверяем следствие:
+# совпадает ли развёрнутое с тем, что в main.
+#
+# Ловит не только упавший деплой, но и любую другую причину расхождения:
+# ручной откат на сервере, правку файла мимо git, деплой, который не
+# запустился из-за фильтра по путям.
+#
+# Почему через HTTP, а не по SSH. Ключ CI заперт в authorized_keys через
+# command="bash /opt/greenmarket/deploy.sh": sshd игнорирует присланный скрипт
+# и запускает деплой, поэтому «проверка» по SSH молча выкатывала бы прод
+# каждую ночь (проверено — так и вышло, откачено в #31). Ограничение ключа
+# правильное, снимать его незачем: приложение само отдаёт свою версию в
+# GET /health, и проверке не нужен доступ к серверу вообще.
+#
+# Версию пишет ci/deploy-impl.sh, отдаёт app/core/deployed_commit.py.
+
+name: Deploy drift check
+
+on:
+  schedule:
+    # 06:00 UTC — 09:00 по Москве, чтобы расхождение попадалось утром.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — иначе checkout берёт один коммит, и ни rev-parse
+      # origin/main, ни rev-list между развёрнутым и ожидаемым не сработают.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare deployed commit with main
+        env:
+          HEALTH_URL: https://testapi.vnespecplanpodaz.online/health
+        run: |
+          set -euo pipefail
+
+          expected="$(git rev-parse origin/main)"
+
+          if ! body="$(curl -sS --fail --max-time 20 "$HEALTH_URL")"; then
+            echo "прод не ответил на $HEALTH_URL — расхождение проверить нечем"
+            exit 1
+          fi
+
+          deployed="$(printf '%s' "$body" | jq -r '.commit // empty')"
+
+          if [ -z "$deployed" ]; then
+            echo "прод не сообщил свою версию: $body"
+            echo
+            echo "Так бывает, если последний деплой прошёл до появления"
+            echo "ci/deploy-impl.sh с записью DEPLOYED_SHA. Починка — обычный деплой."
+            exit 1
+          fi
+
+          if [ "$deployed" = "$expected" ]; then
+            echo "прод соответствует main: ${deployed:0:8}"
+            exit 0
+          fi
+
+          echo "РАСХОЖДЕНИЕ: развёрнуто ${deployed:0:8}, в main ${expected:0:8}"
+          echo
+
+          if git cat-file -e "$deployed^{commit}" 2>/dev/null; then
+            behind="$(git rev-list --count "$deployed".."$expected")"
+            ahead="$(git rev-list --count "$expected".."$deployed")"
+            echo "отстаёт на $behind коммит(ов), опережает на $ahead"
+            echo
+            echo "не доехало на прод:"
+            git log --oneline "$deployed".."$expected"
+          else
+            echo "развёрнутого коммита нет в этом репозитории — на сервере что-то постороннее"
+          fi
+
+          echo
+          echo "Починка: запустить workflow «Deploy to prod» вручную"
+          echo "(gh workflow run deploy.yml) либо на сервере — bash /opt/greenmarket/deploy.sh"
+          exit 1
