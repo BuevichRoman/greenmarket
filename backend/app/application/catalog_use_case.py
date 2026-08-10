@@ -150,6 +150,8 @@ class CatalogUseCase:
                     "unit": offer.unit,
                     "stock": offer.stock,
                     "description": offer.description,
+                    "origin_country": offer.origin_country,
+                    "supply_date": offer.supply_date,
                     "photos": _photo_urls(photos_by_seller_product.get(offer.id, [])),
                 }
                 for offer in offers_sorted

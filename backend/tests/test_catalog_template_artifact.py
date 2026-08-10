@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import openpyxl
+from openpyxl.utils import get_column_letter
 from sqlalchemy import text
 
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
@@ -29,7 +30,7 @@ def _make_validator(session) -> Validator:
     )
 
 
-_PHOTO_COLUMN_INDEX = len(CATALOG_COLUMNS) - 1
+_PHOTO_COLUMN_INDEX = next(i for i, column in enumerate(CATALOG_COLUMNS) if column.name == "Фото")
 
 
 def _with_real_photo_ids(workbook: RawWorkbook, session) -> RawWorkbook:
@@ -93,7 +94,7 @@ def test_master_template_retains_formatting_and_protection():
             assert dv.showErrorMessage is True
 
     assert catalog_sheet.freeze_panes == "A2"
-    assert str(catalog_sheet.auto_filter.ref) == "A1:J1000"
+    assert str(catalog_sheet.auto_filter.ref) == f"A1:{get_column_letter(len(CATALOG_COLUMNS))}1000"
     assert catalog_sheet.column_dimensions["B"].width >= len("Название товара") * 0.9
 
 

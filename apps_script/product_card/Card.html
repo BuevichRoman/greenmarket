@@ -57,6 +57,13 @@
     <label>Дополнительные характеристики</label>
     <textarea id="attributes" rows="2"></textarea>
 
+    <label>Страна происхождения</label>
+    <input type="text" id="originCountry" maxlength="100" placeholder="Например: Марокко">
+
+    <label>Дата поставки</label>
+    <input type="date" id="supplyDate">
+    <div class="hint">Когда партия завезена — покупатель видит по ней свежесть товара. Дата не может быть в будущем.</div>
+
     <label>Фото</label>
     <div class="photos" id="photos"></div>
     <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="margin-top: 8px;">
@@ -122,6 +129,9 @@
       document.getElementById('stock').value = f['Остаток'] || '';
       document.getElementById('description').value = f['Описание'] || '';
       document.getElementById('attributes').value = f['Дополнительные характеристики'] || '';
+      document.getElementById('originCountry').value = f['Страна происхождения'] || '';
+      // Code.gs уже привёл значение ячейки к «ГГГГ-ММ-ДД» — формату input[type=date].
+      document.getElementById('supplyDate').value = f['Дата поставки'] || '';
 
       populateSelectWithFallback(document.getElementById('productGroup'), data.groups, f['Товарная группа GreenMarket']);
       populateSelectWithFallback(document.getElementById('productName'), data.products, f['Товарная позиция GreenMarket']);
@@ -195,6 +205,8 @@
         stock: document.getElementById('stock').value,
         description: document.getElementById('description').value,
         attributes: document.getElementById('attributes').value,
+        originCountry: document.getElementById('originCountry').value,
+        supplyDate: document.getElementById('supplyDate').value,
         photoIds: photoIds,
       };
       setStatus('Сохранение…');

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 
@@ -50,7 +52,7 @@ def make_service(session) -> PublicationService:
     )
 
 
-def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None, photo_ids=None) -> PublicationProduct:
+def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None, photo_ids=None, origin_country=None, supply_date=None) -> PublicationProduct:
     return PublicationProduct(
         seller_product_id=seller_product_id,
         seller_name=seller_name,
@@ -62,6 +64,8 @@ def make_product(*, seller_product_id=None, seller_name="Ферма А", group="
         description=description,
         attributes=attributes,
         photo_ids=photo_ids if photo_ids is not None else [],
+        origin_country=origin_country,
+        supply_date=supply_date,
     )
 
 
@@ -95,6 +99,42 @@ def test_publishes_new_catalog_creates_seller_products(committing_session):
     assert gateway.get_current_publication_key(seller_id) == "key-1"
     assert gateway.get_current_catalog_hash(seller_id) == "hash-1"
     assert CatalogPublicationRepository(committing_session).latest_version(seller_id) == 1
+
+
+def test_publishes_origin_country_and_supply_date(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма со страной")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    model = make_model(seller_id, [make_product(origin_country="Марокко", supply_date=date(2026, 8, 1))])
+    service.publish(model, published_by=user_id, publication_key="key-origin-1", catalog_hash="hash-origin-1")
+
+    saved = SellerProductRepository(committing_session).list_by_seller(seller_id)[0]
+    assert saved.origin_country == "Марокко"
+    assert saved.supply_date == date(2026, 8, 1)
+
+
+def test_changed_supply_date_alone_counts_as_update(committing_session):
+    """Иначе новая дата завоза молча не доехала бы до покупателя: остальные
+    поля строки не менялись, и строка считалась бы неизменной."""
+    seller_id = insert_seller(committing_session, name="Ферма с новой датой")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    first = make_model(seller_id, [make_product(origin_country="Марокко", supply_date=date(2026, 8, 1))])
+    service.publish(first, published_by=user_id, publication_key="key-date-1", catalog_hash="hash-date-1")
+    seller_product_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    second = make_model(
+        seller_id,
+        [make_product(seller_product_id=seller_product_id, origin_country="Египет", supply_date=date(2026, 8, 5))],
+    )
+    result = service.publish(second, published_by=user_id, publication_key="key-date-2", catalog_hash="hash-date-2")
+
+    assert result.updated_count == 1
+    updated = SellerProductRepository(committing_session).find_by_id(seller_product_id)
+    assert updated.origin_country == "Египет"
+    assert updated.supply_date == date(2026, 8, 5)
 
 
 def test_publishing_again_updates_changed_seller_product(committing_session):

@@ -14,6 +14,9 @@ CATALOG_HEADER = [
     "Фото",
 ]
 
+# Шаблон 2.2: две необязательные колонки в хвосте (Валентин, 09.08.2026).
+CATALOG_HEADER_V22 = CATALOG_HEADER + ["Страна происхождения", "Дата поставки"]
+
 PRODUCT_GROUPS_HEADER = ["ProductGroupId", "ParentProductGroupId", "Наименование"]
 PRODUCTS_HEADER = ["ProductId", "ProductGroupId", "Наименование"]
 
@@ -94,6 +97,43 @@ def test_missing_required_column_reports_error():
 
     assert not result.is_valid
     assert any("обязательная колонка 'Цена'" in e.message for e in result.errors)
+
+
+def test_book_with_new_optional_columns_is_valid():
+    workbook = replace_sheet(
+        make_valid_workbook(),
+        "Каталог",
+        [CATALOG_HEADER_V22, [1, "Яблоко", "Овощи", "Прочее", 100, "кг", 5, "", "", "1", "Россия", "01.08.2026"]],
+    )
+    workbook = replace_sheet(workbook, "_System", [["TemplateVersion", "2.2"], ["TemplateId", "template-1"]])
+
+    result = StructureValidator().validate(workbook)
+
+    assert result.is_valid
+
+
+def test_book_without_new_optional_columns_stays_valid():
+    """Книга шаблона 2.1 (десять колонок, без «Страны происхождения» и «Даты
+    поставки») обязана публиковаться после выпуска 2.2: у реального продавца
+    уже заполненная книга, и добавление необязательных колонок не может её
+    сломать."""
+    workbook = replace_sheet(make_valid_workbook(), "Каталог", [CATALOG_HEADER])
+
+    result = StructureValidator().validate(workbook)
+
+    assert result.is_valid
+
+
+def test_missing_optional_column_before_required_one_is_still_an_error():
+    """Пропущена только «Описание» — «Фото» съезжает на её место. Это не
+    старая книга, а сломанная: заголовок на позиции не совпадает."""
+    broken = [c for c in CATALOG_HEADER if c != "Описание"]
+    workbook = replace_sheet(make_valid_workbook(), "Каталог", [broken])
+
+    result = StructureValidator().validate(workbook)
+
+    assert not result.is_valid
+    assert any("Описание" in e.message for e in result.errors)
 
 
 def test_missing_system_field_reports_error():

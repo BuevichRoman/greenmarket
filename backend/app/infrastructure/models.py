@@ -11,9 +11,9 @@ moderator_id, published_by, photo_id) остаются обычными стол
 relationship().
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.database import Base
@@ -62,6 +62,8 @@ class SellerProduct(Base):
     stock: Mapped[float] = mapped_column(Numeric(12, 3))
     unit: Mapped[str] = mapped_column(String(30))
     description: Mapped[str | None] = mapped_column(Text)
+    origin_country: Mapped[str | None] = mapped_column(String(100))
+    supply_date: Mapped[date | None] = mapped_column(Date)
     is_published: Mapped[bool] = mapped_column(Boolean)
     moderation_status: Mapped[str] = mapped_column(String(30))
     moderator_id: Mapped[int | None] = mapped_column(Integer)

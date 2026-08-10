@@ -126,6 +126,26 @@ def test_get_product_by_id_returns_product_group(committing_session):
     assert body["group_name"] == "Группа для роутера карточки"
 
 
+def test_get_product_by_id_returns_origin_country_and_supply_date(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа страны в роутере")
+    product_id = insert_product(committing_session, group_id=group_id, name="Товар страны в роутере")
+    seller_id = insert_active_seller(committing_session, name="Продавец страны в роутере")
+    offer_id = insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=15)
+    committing_session.execute(
+        text("UPDATE SellerProduct SET origin_country = 'Египет', supply_date = '2026-08-05' WHERE id = :id"),
+        {"id": offer_id},
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products/{product_id}")
+
+    app.dependency_overrides.clear()
+    offer = response.json()["offers"][0]
+    assert offer["origin_country"] == "Египет"
+    assert offer["supply_date"] == "2026-08-05"
+
+
 def test_get_product_by_id_returns_404_for_missing_product(committing_session):
     override_session(committing_session)
     client = TestClient(app)

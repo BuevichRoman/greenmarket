@@ -147,6 +147,8 @@ class PublicationService:
                     stock=item.stock,
                     unit=item.unit,
                     description=item.description,
+                    origin_country=item.origin_country,
+                    supply_date=item.supply_date,
                     is_published=bool(item.photo_ids),
                 )
                 self.seller_product_photo_repository.replace_for_product(seller_product.id, item.photo_ids)
@@ -179,6 +181,8 @@ class PublicationService:
                 existing.stock = item.stock
                 existing.unit = item.unit
                 existing.description = item.description
+                existing.origin_country = item.origin_country
+                existing.supply_date = item.supply_date
                 # Товар без фото сохраняется, но покупателю не показывается —
                 # каталог обязан быть с картинками (Catalog_Template.md).
                 existing.is_published = bool(item.photo_ids)
@@ -213,4 +217,6 @@ class PublicationService:
             or float(existing.stock) != item.stock
             or existing.unit != item.unit
             or existing.description != item.description
+            or existing.origin_country != item.origin_country
+            or existing.supply_date != item.supply_date
         )

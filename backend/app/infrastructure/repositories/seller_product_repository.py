@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -76,6 +76,8 @@ class SellerProductRepository:
         unit: str,
         description: str | None,
         is_published: bool,
+        origin_country: str | None = None,
+        supply_date: date | None = None,
     ) -> SellerProduct:
         now = datetime.now(timezone.utc)
         seller_product = SellerProduct(
@@ -86,6 +88,8 @@ class SellerProductRepository:
             stock=stock,
             unit=unit,
             description=description,
+            origin_country=origin_country,
+            supply_date=supply_date,
             is_published=is_published,
             moderation_status=moderation_status_for(product_id),
             created_at=now,

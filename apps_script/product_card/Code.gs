@@ -30,6 +30,8 @@ var COLUMN_ORDER = [
   'Описание',
   'Дополнительные характеристики',
   'Фото',
+  'Страна происхождения',
+  'Дата поставки',
 ];
 
 function onOpen() {
@@ -89,6 +91,7 @@ function getCardData() {
 
   var fields = {};
   COLUMN_ORDER.forEach(function (name, i) { fields[name] = rawRow[i]; });
+  fields['Дата поставки'] = formatDateForInput(fields['Дата поставки']);
 
   if (isNewRow) {
     // Продавец обычно добавляет несколько товаров одной группы подряд —
@@ -126,6 +129,21 @@ function readColumnValues(sheet, columnIndex) {
     .filter(function (value) { return value !== '' && value !== null; });
 }
 
+// Карточка отдаёт дату из <input type="date"> строкой «ГГГГ-ММ-ДД».
+function parseIsoDateOrKeep(value) {
+  if (!value) return '';
+  var parts = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parts) return value;
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+}
+
+// Обратное преобразование: значение ячейки — для <input type="date">.
+function formatDateForInput(cellValue) {
+  if (!cellValue) return '';
+  if (!(cellValue instanceof Date)) return String(cellValue);
+  return Utilities.formatDate(cellValue, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
 function parsePhotoIds(cellValue) {
   if (!cellValue) return [];
   return String(cellValue)
@@ -151,6 +169,12 @@ function saveRow(rowIndex, formData) {
     formData.description,
     formData.attributes,
     formData.photoIds.join(';'),
+    formData.originCountry,
+    // Пишем настоящую дату, а не строку: тогда ячейка показывается в формате
+    // книги продавца, а Sheets API отдаёт её серийным числом, которое сервер
+    // разбирает (backend/app/parsing/cell_values.py). Непарсящееся значение
+    // сохраняем как есть — ошибку про формат покажет публикация.
+    parseIsoDateOrKeep(formData.supplyDate),
   ];
 
   sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);

@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel
@@ -38,6 +39,10 @@ class SellerOfferItem(BaseModel):
     unit: str
     stock: Decimal
     description: str | None
+    # Оба поля относятся к предложению продавца, а не к товарной позиции: один
+    # и тот же товар у разных продавцов из разных стран и разной свежести.
+    origin_country: str | None
+    supply_date: date | None
     photos: list[str]
 
 
