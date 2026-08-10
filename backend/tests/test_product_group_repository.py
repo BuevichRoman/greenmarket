@@ -25,10 +25,14 @@ def test_list_active_excludes_inactive_groups(session):
 
 
 def test_list_active_orders_by_sort_order_then_name(session):
-    insert_product_group(session, name="Z-группа sort_order test", sort_order=1)
-    insert_product_group(session, name="A-группа sort_order test", sort_order=1)
-    first_id = insert_product_group(session, name="Группа с sort_order 0", sort_order=0)
+    # Порядок проверяется только между группами этого теста: в БД разработчика
+    # лежат и сиды, и группы реальных продавцов — среди них есть свои группы с
+    # sort_order 0, и абсолютная позиция в списке ничего не значила бы.
+    last_id = insert_product_group(session, name="Z-группа sort_order test", sort_order=1)
+    middle_id = insert_product_group(session, name="A-группа sort_order test", sort_order=1)
+    first_id = insert_product_group(session, name="Группа с sort_order 0 test", sort_order=0)
 
     result = ProductGroupRepository(session).list_active()
 
-    assert result[0].id == first_id
+    own_order = [g.id for g in result if g.id in {first_id, middle_id, last_id}]
+    assert own_order == [first_id, middle_id, last_id]

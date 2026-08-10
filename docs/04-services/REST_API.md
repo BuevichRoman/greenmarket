@@ -42,7 +42,7 @@ REST API первого этапа состоит из следующих раз
 
 - `GET /api/v1/catalog/groups` — дерево категорий (ProductGroup) с количеством товаров.
 - `GET /api/v1/catalog/products` — товары категории; параметры `group_id`, `page`, `limit`, `search`. Ответ содержит Product, минимальную цену, количество предложений, фотографии.
-- `GET /api/v1/catalog/products/{id}` — карточка товара: Product, список SellerProduct, цены, остатки, фотографии.
+- `GET /api/v1/catalog/products/{id}` — карточка товара: Product, его товарная группа (`group_id`, `group_name`), список SellerProduct, цены, остатки, фотографии. Группа берётся у товарной позиции, а не у предложения продавца: продавец выбирает товар, группа определена товаром.
 - `GET /api/v1/catalog/sellers/{id}` — карточка продавца: `{"seller_id": int, "name": str, "row": str|null, "place": str|null, "working_hours": str|null, "short_description": str|null, "phone": str|null, "whatsapp": str|null}`. Состав — [Seller_Profile.md](../02-domain/Seller_Profile.md), §9. Деактивированный или несуществующий продавец — `404` `NOT_FOUND`: покупателю неактивный продавец не показывается (§9), и различать эти два случая незачем — иначе по кодам ответа можно было бы перебором выяснить, кто из продавцов деактивирован. Код `NOT_FOUND`, а не `SELLER_NOT_FOUND` как в Seller/Admin API, — сознательно: в Catalog API все 404 одинаковы (см. `GET /catalog/products/{id}`), покупателю не полагается различать причину. Учётный телефон платформы (`users.phone`) здесь не появляется никогда — отдаётся только то, что продавец сохранил сам.
 
 ## Publication API

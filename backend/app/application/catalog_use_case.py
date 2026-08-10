@@ -137,6 +137,10 @@ class CatalogUseCase:
             "id": product.id,
             "name": product.name,
             "description": product.description,
+            # Группа берётся у эталонной товарной позиции, а не у предложения
+            # продавца: продавец группу не выбирает, он выбирает товар.
+            "group_id": product.product_group_id,
+            "group_name": product.group.name,
             "offers": [
                 {
                     "seller_product_id": offer.id,

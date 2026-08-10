@@ -59,4 +59,6 @@ class ProductDetailResponse(BaseModel):
     id: int
     name: str
     description: str | None
+    group_id: int
+    group_name: str
     offers: list[SellerOfferItem]

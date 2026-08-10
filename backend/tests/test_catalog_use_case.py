@@ -173,6 +173,18 @@ def test_get_product_returns_platform_seller_name_not_offer_title(session):
     assert [offer["seller_name"] for offer in result["offers"]] == ["Ферма Ромашково"]
 
 
+def test_get_product_returns_product_group(session):
+    group_id = insert_product_group(session, name="Группа в карточке товара")
+    product_id = insert_product(session, group_id=group_id, name="Товар с товарной группой")
+    seller_id = insert_active_seller(session, name="Продавец для товарной группы")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    result = CatalogUseCase(session).get_product(product_id)
+
+    assert result["group_id"] == group_id
+    assert result["group_name"] == "Группа в карточке товара"
+
+
 def test_get_product_returns_none_for_product_without_visible_offers(session):
     group_id = insert_product_group(session, name="Группа для get_product без предложений")
     product_id = insert_product(session, group_id=group_id, name="Товар без предложений get_product")

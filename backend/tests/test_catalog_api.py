@@ -110,6 +110,22 @@ def test_get_product_by_id_returns_offers(committing_session):
     assert body["offers"][0]["price"] == "15.00"
 
 
+def test_get_product_by_id_returns_product_group(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа для роутера карточки")
+    product_id = insert_product(committing_session, group_id=group_id, name="Товар с группой в роутере")
+    seller_id = insert_active_seller(committing_session, name="Продавец для группы в роутере")
+    insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=15)
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products/{product_id}")
+
+    app.dependency_overrides.clear()
+    body = response.json()
+    assert body["group_id"] == group_id
+    assert body["group_name"] == "Группа для роутера карточки"
+
+
 def test_get_product_by_id_returns_404_for_missing_product(committing_session):
     override_session(committing_session)
     client = TestClient(app)

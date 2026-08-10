@@ -63,6 +63,8 @@ def get_product(product_id: int, session: Session = Depends(get_session)) -> Pro
         id=product["id"],
         name=product["name"],
         description=product["description"],
+        group_id=product["group_id"],
+        group_name=product["group_name"],
         offers=[SellerOfferItem(**offer) for offer in product["offers"]],
     )
 
