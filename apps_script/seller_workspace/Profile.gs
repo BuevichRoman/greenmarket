@@ -5,7 +5,7 @@
 
 // Состав полей дублирует backend/app/profile/fields.py (PROFILE_FIELDS) — источник
 // правды там. Stage 2 добавит фото, логотип и соцсети (Seller_Profile.md, раздел 4):
-// новое поле придётся завести и здесь, и в Profile.html.
+// новое поле придётся завести и здесь, и в ProfileForm.html.
 var PROFILE_FIELDS = ['phone', 'whatsapp', 'row', 'place', 'working_hours', 'short_description'];
 
 var PROFILE_FIELD_LABELS = {
@@ -17,9 +17,12 @@ var PROFILE_FIELD_LABELS = {
   short_description: 'краткое описание',
 };
 
+// Форма лежит в ProfileForm.html, а не в Profile.html: Apps Script требует уникальные
+// имена файлов независимо от типа, и HTML-файл «Profile» рядом со скриптом «Profile»
+// создать нельзя — редактор отвечает «Файл с таким названием уже существует».
 function openSellerProfile() {
   if (!getOrPromptAccessToken()) return; // код активации не введён — диалог не открываем
-  var html = HtmlService.createHtmlOutputFromFile('Profile').setWidth(560).setHeight(700);
+  var html = HtmlService.createHtmlOutputFromFile('ProfileForm').setWidth(560).setHeight(700);
   SpreadsheetApp.getUi().showModalDialog(html, 'Профиль продавца');
 }
 
@@ -45,7 +48,7 @@ function getProfileData() {
   return handleApiResponse(response, 200);
 }
 
-// changedFields — только реально изменённые поля (diff считает Profile.html). PUT
+// changedFields — только реально изменённые поля (diff считает ProfileForm.html). PUT
 // трактует отсутствие ключа как «не трогать», поэтому отправка всей формы затёрла бы
 // правки администратора, сделанные пока диалог был открыт. Пустая строка — очистка поля.
 // missingFields — незаполненные обязательные, нужны только для текста toast'а.

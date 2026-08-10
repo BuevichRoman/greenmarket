@@ -15,7 +15,7 @@
 
 **В объём:**
 
-- пункт меню «GreenMarket» → «Профиль продавца» и модальный диалог `Profile.html`;
+- пункт меню «GreenMarket» → «Профиль продавца» и модальный диалог `ProfileForm.html`;
 - чтение профиля через `GET /api/v1/seller/profile`, сохранение через `PUT /api/v1/seller/profile`;
 - подстановка учётного телефона платформы (`suggested_phone`) по явному действию продавца;
 - мягкое предупреждение о незаполненных полях, обязательных на Stage 1;
@@ -68,7 +68,7 @@ apps_script/seller_workspace/
   Code.gs           меню (+ пункт «Профиль продавца»), активация, общие хелперы, карточка
   Card.html         без изменений
   Profile.gs        новый — openSellerProfile(), getProfileData(), saveProfile()
-  Profile.html      новый — форма
+  ProfileForm.html  новый — форма (имя не `Profile`: Apps Script не терпит двух файлов с одним именем)
   README.md         деплой обоих файлов + чек-листы ручного тестирования
 ```
 
@@ -76,9 +76,9 @@ apps_script/seller_workspace/
 
 ## Поток данных
 
-**Открытие.** «GreenMarket» → «Профиль продавца» → `openSellerProfile()` → `getOrPromptAccessToken()` (токена нет — тот же `ui.prompt` с кодом активации, что у карточки; отмена — диалог не открывается) → `showModalDialog(Profile.html, 'Профиль продавца')`.
+**Открытие.** «GreenMarket» → «Профиль продавца» → `openSellerProfile()` → `getOrPromptAccessToken()` (токена нет — тот же `ui.prompt` с кодом активации, что у карточки; отмена — диалог не открывается) → `showModalDialog(ProfileForm.html, 'Профиль продавца')`.
 
-**Загрузка.** `Profile.html` при старте зовёт `getProfileData()` → `GET /api/v1/seller/profile?access_token=…` → в форму приходит `{seller_id, name, status, row, place, working_hours, short_description, phone, whatsapp, suggested_phone}`.
+**Загрузка.** `ProfileForm.html` при старте зовёт `getProfileData()` → `GET /api/v1/seller/profile?access_token=…` → в форму приходит `{seller_id, name, status, row, place, working_hours, short_description, phone, whatsapp, suggested_phone}`.
 
 **Форма.**
 
@@ -138,6 +138,6 @@ apps_script/seller_workspace/
 
 ## Риски
 
-- **Расхождение между формой и `PROFILE_FIELDS`.** Состав полей в `Profile.html` дублирует `backend/app/profile/fields.py` вручную; Stage 2 добавит фото, логотип и соцсети, и форма про них не узнает. Митигация на Stage 1 — комментарий-ссылка в обоих файлах; генерация формы из контракта не окупается на шести полях.
+- **Расхождение между формой и `PROFILE_FIELDS`.** Состав полей в `ProfileForm.html` дублирует `backend/app/profile/fields.py` вручную; Stage 2 добавит фото, логотип и соцсети, и форма про них не узнает. Митигация на Stage 1 — комментарий-ссылка в обоих файлах; генерация формы из контракта не окупается на шести полях.
 - **Ручной деплой.** Скрипт копируется в книгу руками, версия в репозитории и версия в книге расходятся молча. Существующий риск карточки товара, не создаваемый этой работой; закрывается только clasp/CI, что вне объёма.
 - **Мобильное приложение Google Sheets.** Кастомные меню контейнерных скриптов в нативном приложении не отображаются — то же ограничение платформы, что у карточки (решение от 2026-07-24: обход не делаем, работа через браузерную версию).

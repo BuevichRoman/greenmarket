@@ -101,7 +101,7 @@ function onOpen() {
 
 // Состав полей дублирует backend/app/profile/fields.py (PROFILE_FIELDS) — источник
 // правды там. Stage 2 добавит фото, логотип и соцсети (Seller_Profile.md, раздел 4):
-// новое поле придётся завести и здесь, и в Profile.html.
+// новое поле придётся завести и здесь, и в ProfileForm.html.
 var PROFILE_FIELDS = ['phone', 'whatsapp', 'row', 'place', 'working_hours', 'short_description'];
 
 var PROFILE_FIELD_LABELS = {
@@ -115,14 +115,14 @@ var PROFILE_FIELD_LABELS = {
 
 function openSellerProfile() {
   if (!getOrPromptAccessToken()) return; // код активации не введён — диалог не открываем
-  var html = HtmlService.createHtmlOutputFromFile('Profile').setWidth(560).setHeight(700);
+  var html = HtmlService.createHtmlOutputFromFile('ProfileForm').setWidth(560).setHeight(700);
   SpreadsheetApp.getUi().showModalDialog(html, 'Профиль продавца');
 }
 ```
 
 - [ ] **Step 3: Самопроверка**
 
-Вычитать: имя файла в `createHtmlOutputFromFile('Profile')` совпадает с именем HTML-файла, который создаётся в Task 5 (`Profile.html` в репозитории — файл `Profile` в Script Editor). `getOrPromptAccessToken` объявлена в `Code.gs:163` и возвращает `null` при отказе/неверном коде — поэтому проверка `if (!...) return;` достаточна, свой alert здесь не нужен (его уже показывает `getOrPromptAccessToken`).
+Вычитать: имя файла в `createHtmlOutputFromFile('ProfileForm')` совпадает с именем HTML-файла, который создаётся в Task 5 (`ProfileForm.html` в репозитории — файл `ProfileForm` в Script Editor). Имя не `Profile`: Apps Script требует уникальные имена файлов независимо от типа, и HTML `Profile` рядом со скриптом `Profile` создать нельзя. `getOrPromptAccessToken` объявлена в `Code.gs:163` и возвращает `null` при отказе/неверном коде — поэтому проверка `if (!...) return;` достаточна, свой alert здесь не нужен (его уже показывает `getOrPromptAccessToken`).
 
 - [ ] **Step 4: Commit**
 
@@ -178,7 +178,7 @@ git commit -m "Книга продавца читает профиль чере�
 Дописать в конец `apps_script/seller_workspace/Profile.gs`:
 
 ```javascript
-// changedFields — только реально изменённые поля (diff считает Profile.html). PUT
+// changedFields — только реально изменённые поля (diff считает ProfileForm.html). PUT
 // трактует отсутствие ключа как «не трогать», поэтому отправка всей формы затёрла бы
 // правки администратора, сделанные пока диалог был открыт. Пустая строка — очистка поля.
 // missingFields — незаполненные обязательные, нужны только для текста toast'а.
@@ -225,14 +225,14 @@ git commit -m "Книга продавца сохраняет профиль, о
 
 ---
 
-### Task 5: Форма (`Profile.html`)
+### Task 5: Форма (`ProfileForm.html`)
 
 **Files:**
-- Create: `apps_script/seller_workspace/Profile.html`
+- Create: `apps_script/seller_workspace/ProfileForm.html`
 
 - [ ] **Step 1: Создать файл формы**
 
-Создать `apps_script/seller_workspace/Profile.html`:
+Создать `apps_script/seller_workspace/ProfileForm.html`:
 
 ```html
 <!DOCTYPE html>
@@ -421,7 +421,7 @@ git commit -m "Книга продавца сохраняет профиль, о
 - [ ] **Step 3: Commit**
 
 ```bash
-git add apps_script/seller_workspace/Profile.html
+git add apps_script/seller_workspace/ProfileForm.html
 git commit -m "Форма профиля продавца: подсказка учётного телефона, предупреждение о пустых полях"
 ```
 
@@ -441,8 +441,11 @@ git commit -m "Форма профиля продавца: подсказка у
 ```markdown
 7. Создать файл `Profile.gs` (`Файл → Создать → Скрипт`, имя ровно `Profile`) —
    вставить содержимое `apps_script/seller_workspace/Profile.gs`.
-8. Создать HTML-файл `Profile` (`Файл → Создать → HTML-файл`, имя ровно `Profile`) —
-   вставить содержимое `apps_script/seller_workspace/Profile.html`.
+8. Создать HTML-файл `ProfileForm` (`Файл → Создать → HTML-файл`, имя ровно
+   `ProfileForm`) — вставить содержимое `apps_script/seller_workspace/ProfileForm.html`.
+   Имя отличается от `Profile.gs` не случайно: Apps Script требует уникальные имена
+   файлов независимо от типа и на `Profile` ответит «Файл с таким названием уже
+   существует».
 ```
 
 Существующий последний шаг («Сохранить проект … в меню должен появиться пункт «GreenMarket»») перенумеровать соответственно.
@@ -488,7 +491,7 @@ git commit -m "Форма профиля продавца: подсказка у
 
 - [ ] **Step 4: Задеплоить в рабочую книгу и пройти чек-лист**
 
-Перенести `Code.gs`, `Profile.gs`, `Profile.html` в Script Editor книги (`API_BASE_URL` в книге уже указывает на прод — заменять не нужно, если файл `Code.gs` копируется целиком, поставить реальный адрес заново). Пройти **весь** чек-лист раздела «Профиль продавца» и убедиться, что карточка товара не сломалась: открыть «Открыть карточку» на заполненной строке — форма загружается как раньше.
+Перенести `Code.gs`, `Profile.gs`, `ProfileForm.html` в Script Editor книги (`API_BASE_URL` в книге уже указывает на прод — заменять не нужно, если файл `Code.gs` копируется целиком, поставить реальный адрес заново). Пройти **весь** чек-лист раздела «Профиль продавца» и убедиться, что карточка товара не сломалась: открыть «Открыть карточку» на заполненной строке — форма загружается как раньше.
 
 Отмечать пункты фактически пройденными, а не «должно работать». Любое расхождение — правка кода и повторный прогон затронутых пунктов.
 

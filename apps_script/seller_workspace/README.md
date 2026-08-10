@@ -24,8 +24,11 @@ Container-bound Google Apps Script рабочей книги продавца �
    вставить содержимое `apps_script/seller_workspace/Card.html`.
 7. Создать файл `Profile.gs` (`Файл → Создать → Скрипт`, имя ровно `Profile`) —
    вставить содержимое `apps_script/seller_workspace/Profile.gs`.
-8. Создать HTML-файл `Profile` (`Файл → Создать → HTML-файл`, имя ровно `Profile`) —
-   вставить содержимое `apps_script/seller_workspace/Profile.html`.
+8. Создать HTML-файл `ProfileForm` (`Файл → Создать → HTML-файл`, имя ровно
+   `ProfileForm`) — вставить содержимое `apps_script/seller_workspace/ProfileForm.html`.
+   Имя отличается от `Profile.gs` не случайно: Apps Script требует уникальные имена
+   файлов независимо от типа и на `Profile` ответит «Файл с таким названием уже
+   существует».
 9. Сохранить проект (`Ctrl+S`/`Cmd+S`), закрыть Script Editor, обновить страницу
    таблицы — в меню должен появиться пункт «GreenMarket».
 
