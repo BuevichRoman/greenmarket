@@ -231,8 +231,31 @@ def test_seller_card_returns_market_with_coordinates(committing_session):
     market = response.json()["market"]
     assert market["id"] == market_id
     assert market["name"] == "Даниловский рынок"
+    assert market["type"] == "MARKET"
     assert market["address"] == "Москва, Мытная, 74"
     assert (market["latitude"], market["longitude"]) == ("55.7150000", "37.6210000")
+
+
+def test_seller_card_returns_shop_type(committing_session):
+    """Лавка — отдельно стоящая точка (Валентин, 10.08): на карте её пин это
+    сам продавец, а не сотня продавцов одного рынка."""
+    seller_id, user_id = insert_seller_with_user(committing_session, name="Продавец с лавкой")
+    market_id = committing_session.execute(
+        text(
+            "INSERT INTO Market (name, type, address, is_active) "
+            "VALUES ('Лавка у дома', 'SHOP', 'Казань, Баумана, 5', TRUE)"
+        )
+    ).lastrowid
+    SellerProfileService(committing_session).apply(
+        seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER"
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/sellers/{seller_id}")
+
+    app.dependency_overrides.clear()
+    assert response.json()["market"]["type"] == "SHOP"
 
 
 def test_seller_card_without_market_returns_null(committing_session):

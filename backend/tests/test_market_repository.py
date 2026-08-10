@@ -60,8 +60,22 @@ def test_create_stores_coordinates(session):
 
 
 def test_create_allows_market_without_coordinates(session):
-    """Рынок заводится по названию и адресу — точку можно снять позже."""
+    """Точка заводится по названию и адресу — координаты можно снять позже."""
     market = MarketRepository(session).create(name="Рынок без точки", address="Москва, Тестовая, 2")
 
     assert market.latitude is None
     assert market.longitude is None
+
+
+def test_create_defaults_to_market_type(session):
+    """Умолчание — рынок: лавка это частный случай, который указывают явно."""
+    market = MarketRepository(session).create(name="Точка без типа", address="Москва, Тестовая, 6")
+
+    assert market.type == "MARKET"
+
+
+def test_create_stores_shop_type(session):
+    """Лавка — отдельно стоящая точка в городе или деревне (Валентин, 10.08)."""
+    shop = MarketRepository(session).create(name="Лавка у дома", address="Казань, Баумана, 5", type="SHOP")
+
+    assert MarketRepository(session).find_by_id(shop.id).type == "SHOP"

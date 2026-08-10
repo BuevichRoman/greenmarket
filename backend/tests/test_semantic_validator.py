@@ -167,9 +167,10 @@ def test_unparseable_supply_date_reports_error(session):
     assert any(e.column == "Дата поставки" for e in result.errors)
 
 
-def test_future_supply_date_reports_error(session):
-    """Дата завоза — признак свежести партии, она в прошлом. Дата из будущего
-    означает опечатку продавца, а не «поставка ожидается»."""
+def test_future_supply_date_is_allowed(session):
+    """Решение Валентина 10.08: дата больше сегодняшней — план поставки,
+    меньше — факт завоза. Для бэкенда это одно и то же поле, поэтому будущая
+    дата не ошибка, а осмысленное значение."""
     tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
     workbook = make_workbook(
         [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Марокко", tomorrow]]
@@ -177,8 +178,7 @@ def test_future_supply_date_reports_error(session):
 
     result = make_validator(session).validate(workbook)
 
-    assert not result.is_valid
-    assert any(e.column == "Дата поставки" for e in result.errors)
+    assert result.is_valid
 
 
 def test_today_supply_date_is_allowed(session):

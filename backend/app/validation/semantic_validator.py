@@ -1,5 +1,3 @@
-from datetime import date
-
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.parsing.cell_values import parse_supply_date
@@ -138,8 +136,15 @@ class SemanticValidator:
         return []
 
     def _validate_supply_date(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
+        """Проверяется только разбираемость значения.
+
+        Дата в будущем — не ошибка (решение Валентина 10.08.2026): будущая дата
+        означает планируемую поставку, прошедшая — состоявшийся завоз. Для
+        хранения это одно и то же поле, различает их тот, кто показывает
+        товар покупателю, сравнивая дату с текущей.
+        """
         try:
-            supply_date = parse_supply_date(value)
+            parse_supply_date(value)
         except ValueError:
             return [
                 ValidationError(
@@ -147,19 +152,6 @@ class SemanticValidator:
                     row=row_number,
                     column="Дата поставки",
                     message=f"'{value}' не является датой (ожидается формат ДД.ММ.ГГГГ)",
-                )
-            ]
-        if supply_date is None:
-            return []
-        # Это дата завоза партии — признак свежести товара, она не может быть в
-        # будущем. Дата «послезавтра» — опечатка продавца, а не план поставки.
-        if supply_date > date.today():
-            return [
-                ValidationError(
-                    sheet=sheet_name,
-                    row=row_number,
-                    column="Дата поставки",
-                    message=f"Дата завоза {supply_date.strftime('%d.%m.%Y')} находится в будущем",
                 )
             ]
         return []

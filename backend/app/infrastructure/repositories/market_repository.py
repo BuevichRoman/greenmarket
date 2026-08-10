@@ -31,12 +31,15 @@ class MarketRepository:
         *,
         name: str,
         address: str,
+        type: str = Market.MARKET,
         latitude: Decimal | None = None,
         longitude: Decimal | None = None,
     ) -> Market:
         market = Market(
             name=name,
             address=address,
+            # Умолчание — рынок: лавка это частный случай, который указывают явно.
+            type=type,
             latitude=latitude,
             longitude=longitude,
             is_active=True,

@@ -52,18 +52,27 @@ class Product(Base):
 
 
 class Market(Base):
-    """Рынок, на котором торгуют продавцы (миграция 017).
+    """Место торговли (миграция 017): рынок или отдельно стоящая лавка.
 
     Своя таблица GreenMarket, а не платформенная: название, адрес и координаты
-    принадлежат рынку, а не каждому из сотен его продавцов (Seller_Profile.md,
-    §3). Продавец ссылается на рынок профильным свойством `gm_seller_market_id`
-    в платформенном `users_prop` — внешнего ключа оттуда сюда нет.
+    принадлежат месту торговли, а не каждому из сотен его продавцов
+    (Seller_Profile.md, §3). Продавец ссылается на него профильным свойством
+    `gm_seller_market_id` в платформенном `users_prop` — внешнего ключа оттуда
+    сюда нет.
+
+    `type` различает рынок (много продавцов, ряды и места) и лавку (один
+    продавец, ряда и места нет). Отдельной таблицы под лавку нет: поля и способ
+    показа на карте у них одинаковые.
     """
 
     __tablename__ = "Market"
 
+    MARKET = "MARKET"
+    SHOP = "SHOP"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200))
+    type: Mapped[str] = mapped_column(String(16))
     address: Mapped[str] = mapped_column(String(500))
     latitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
     longitude: Mapped[float | None] = mapped_column(Numeric(10, 7))

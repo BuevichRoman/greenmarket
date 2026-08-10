@@ -47,11 +47,13 @@ class SellerOfferItem(BaseModel):
 
 
 class MarketItem(BaseModel):
-    """Рынок в карточке продавца. Координаты могут быть не сняты — тогда
-    рынок показывается адресом, но на карту не ставится."""
+    """Место торговли в карточке продавца: рынок или отдельно стоящая лавка
+    (`type`). Координаты могут быть не сняты — тогда точка показывается
+    адресом, но на карту не ставится."""
 
     id: int
     name: str
+    type: str
     address: str
     latitude: Decimal | None
     longitude: Decimal | None

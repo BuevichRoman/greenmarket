@@ -30,13 +30,14 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 def _market_not_found(market_id: int) -> JSONResponse:
-    return error_response(404, "MARKET_NOT_FOUND", f"Рынок {market_id} не найден")
+    return error_response(404, "MARKET_NOT_FOUND", f"Место торговли {market_id} не найдено")
 
 
 def _summary(market: Market) -> MarketSummary:
     return MarketSummary(
         id=market.id,
         name=market.name,
+        type=market.type,
         address=market.address,
         latitude=market.latitude,
         longitude=market.longitude,
@@ -67,6 +68,7 @@ def create_market(
 
     market = MarketRepository(session).create(
         name=request.name,
+        type=request.type,
         address=request.address,
         latitude=request.latitude,
         longitude=request.longitude,

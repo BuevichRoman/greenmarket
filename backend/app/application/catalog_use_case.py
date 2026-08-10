@@ -178,13 +178,16 @@ class CatalogUseCase:
         if market_id is None or not market_id.isdigit():
             return None
         market = MarketRepository(self.session).find_by_id(int(market_id))
-        # Закрытый рынок покупателю не показывается — по той же логике, по
+        # Закрытая точка покупателю не показывается — по той же логике, по
         # которой не показывается деактивированный продавец.
         if market is None or not market.is_active:
             return None
         return {
             "id": market.id,
             "name": market.name,
+            # Тип нужен покупателю на карте: у рынка один пин на сотню
+            # продавцов, у лавки пин — это сам продавец.
+            "type": market.type,
             "address": market.address,
             "latitude": market.latitude,
             "longitude": market.longitude,

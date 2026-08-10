@@ -89,9 +89,10 @@ def list_markets(
     session: Session = Depends(get_session),
     resolve_access=Depends(get_seller_access_resolver),
 ) -> MarketListResponse | JSONResponse:
-    """Справочник рынков для выпадающего списка в форме профиля.
+    """Справочник мест торговли для выпадающего списка в форме профиля —
+    и рынки, и отдельно стоящие лавки.
 
-    Только открытые рынки: закрытый выбрать нельзя, его и не предлагаем.
+    Только открытые точки: закрытую выбрать нельзя, её и не предлагаем.
     Токен требуется, как и у остального Seller API, — справочник живёт в
     кабинете продавца, а не в публичном каталоге.
     """
@@ -100,7 +101,7 @@ def list_markets(
 
     markets = MarketRepository(session).list_active()
     return MarketListResponse(
-        markets=[MarketOption(id=m.id, name=m.name, address=m.address) for m in markets]
+        markets=[MarketOption(id=m.id, name=m.name, type=m.type, address=m.address) for m in markets]
     )
 
 
