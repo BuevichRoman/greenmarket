@@ -154,6 +154,18 @@ function parsePhotoIds(cellValue) {
     .filter(function (id) { return !isNaN(id); });
 }
 
+// Сколько колонок листа «Каталог» реально объявлено заголовком. Книга шаблона
+// 2.1 короче нынешнего COLUMN_ORDER на «Страну происхождения» и «Дату
+// поставки» — новые необязательные колонки всегда добавляются только в хвост.
+function columnCount(sheet) {
+  var header = sheet.getRange(1, 1, 1, COLUMN_ORDER.length).getValues()[0];
+  var declared = 0;
+  while (declared < COLUMN_ORDER.length && header[declared] === COLUMN_ORDER[declared]) {
+    declared++;
+  }
+  return declared;
+}
+
 function saveRow(rowIndex, formData) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CATALOG_SHEET_NAME);
   var existingSellerProductId = rowIndex <= sheet.getLastRow() ? sheet.getRange(rowIndex, 1).getValue() : '';
@@ -177,7 +189,12 @@ function saveRow(rowIndex, formData) {
     parseIsoDateOrKeep(formData.supplyDate),
   ];
 
-  sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
+  // В книге шаблона 2.1 двух последних колонок физически нет. Записать их
+  // всё равно означало бы положить страну и дату в безымянные колонки, откуда
+  // публикация их не прочитает: продавец увидел бы «сохранено», а покупатель
+  // ничего. Пишем ровно столько колонок, сколько объявлено в заголовке.
+  var declared = columnCount(sheet);
+  sheet.getRange(rowIndex, 1, 1, declared).setValues([values.slice(0, declared)]);
 
   if (formData.productGroup) {
     PropertiesService.getDocumentProperties().setProperty(LAST_PRODUCT_GROUP_PROPERTY, formData.productGroup);
