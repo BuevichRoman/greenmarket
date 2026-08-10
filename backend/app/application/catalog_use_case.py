@@ -8,7 +8,14 @@ from app.infrastructure.repositories.seller_product_repository import SellerProd
 from app.platform.photo_gateway import PhotoGateway
 from app.platform.photo_storage import build_photo_url
 from app.platform.seller_gateway import SellerGateway
+from app.platform.user_prop_gateway import UserPropGateway
+from app.profile.fields import field_by_name
 from app.profile.seller_profile_service import SellerProfileService
+
+
+# Привязка продавца к месту торговли — обычное поле профиля, поэтому имя
+# свойства берётся из единственного источника состава профиля, а не строкой.
+MARKET_PROP_VAR = field_by_name("market_id").prop_var
 
 
 def _photo_urls(s3_keys: list[str]) -> list[str]:
@@ -158,6 +165,68 @@ class CatalogUseCase:
                 for offer in offers_sorted
             ],
         }
+
+    def _visible_sellers_of_market(self, market_id: int) -> list:
+        """Продавцы точки, которых покупателю имеет смысл показывать: активные
+        и с хотя бы одним опубликованным товаром. Правило то же, что в каталоге
+        — иначе на карте появлялись бы продавцы, у которых пусто."""
+        user_ids = UserPropGateway(self.session).users_with_value(MARKET_PROP_VAR, str(market_id))
+        sellers = self.seller_gateway.list_active_by_user_ids(list(user_ids))
+        return [s for s in sellers if self.seller_product_repository.count_published(s.seller_id) > 0]
+
+    def list_markets(self) -> list[dict]:
+        """Точки для экрана «Карта» (Buyer_MVP.md).
+
+        Без координат точку на карту не поставить, а точка без видимых
+        продавцов — обманутое ожидание покупателя: и то, и другое из выдачи
+        исключается.
+        """
+        markets = []
+        for market in MarketRepository(self.session).list_active():
+            if market.latitude is None or market.longitude is None:
+                continue
+            seller_count = len(self._visible_sellers_of_market(market.id))
+            if seller_count == 0:
+                continue
+            markets.append(
+                {
+                    "id": market.id,
+                    "name": market.name,
+                    "type": market.type,
+                    "address": market.address,
+                    "latitude": market.latitude,
+                    "longitude": market.longitude,
+                    "seller_count": seller_count,
+                }
+            )
+        return markets
+
+    def list_market_sellers(self, market_id: int) -> list[dict] | None:
+        """Продавцы одной точки — то, что покупатель видит, нажав на пин.
+
+        `None` — точки нет или она закрыта: для покупателя это одно и то же,
+        как и с деактивированным продавцом.
+        """
+        market = MarketRepository(self.session).find_by_id(market_id)
+        if market is None or not market.is_active:
+            return None
+
+        profile_service = SellerProfileService(self.session)
+        sellers = []
+        for seller in self._visible_sellers_of_market(market_id):
+            profile = profile_service.read(seller.seller_id)
+            sellers.append(
+                {
+                    "seller_id": seller.seller_id,
+                    "name": seller.name,
+                    "row": profile["row"],
+                    "place": profile["place"],
+                    "working_hours": profile["working_hours"],
+                    "short_description": profile["short_description"],
+                    "product_count": self.seller_product_repository.count_published(seller.seller_id),
+                }
+            )
+        return sellers
 
     def get_seller_card(self, seller_id: int) -> dict | None:
         """Карточка продавца для покупателя (Seller_Profile.md, §9).

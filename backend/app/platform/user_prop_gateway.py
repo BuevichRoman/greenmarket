@@ -104,6 +104,22 @@ class UserPropGateway:
                 values[prop_var_by_id[prop_id]] = value
         return values
 
+    def users_with_value(self, prop_var: str, value: str) -> set[int]:
+        """Обратный поиск: у кого свойство равно заданному значению.
+
+        Нужен карте — она идёт от места торговли к продавцам, а не наоборот, и
+        перебирать профили всех продавцов по одному ради этого нельзя. Читать
+        `users_prop_items_*` напрямую из продуктового кода тем более нельзя:
+        знание о чужой схеме живёт только здесь (см. модуль).
+        """
+        prop_id, value_type = self._resolve([prop_var])[prop_var]
+        table = self._items_table(prop_var, value_type)
+        rows = self.session.execute(
+            text(f"SELECT id_user FROM {table} WHERE id_users_prop = :prop_id AND value = :value"),
+            {"prop_id": prop_id, "value": value},
+        ).all()
+        return {row[0] for row in rows}
+
     def write(self, user_id: int, prop_var: str, value: str) -> None:
         prop_id, value_type = self._resolve([prop_var])[prop_var]
         table = self._items_table(prop_var, value_type)

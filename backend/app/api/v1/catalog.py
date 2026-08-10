@@ -6,6 +6,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.catalog_schemas import (
+    MapMarketItem,
+    MapMarketListResponse,
+    MarketSellerItem,
+    MarketSellerListResponse,
     ProductDetailResponse,
     ProductGroupItem,
     ProductGroupsResponse,
@@ -67,6 +71,24 @@ def get_product(product_id: int, session: Session = Depends(get_session)) -> Pro
         group_name=product["group_name"],
         offers=[SellerOfferItem(**offer) for offer in product["offers"]],
     )
+
+
+@router.get("/markets", response_model=MapMarketListResponse)
+def list_markets(session: Session = Depends(get_session)) -> MapMarketListResponse:
+    """Точки для экрана «Карта»: рынки и лавки с координатами."""
+    markets = CatalogUseCase(session).list_markets()
+    return MapMarketListResponse(markets=[MapMarketItem(**market) for market in markets])
+
+
+@router.get("/markets/{market_id}/sellers", response_model=MarketSellerListResponse)
+def list_market_sellers(
+    market_id: int, session: Session = Depends(get_session)
+) -> MarketSellerListResponse | JSONResponse:
+    """Продавцы точки — то, что покупатель видит, нажав на пин."""
+    sellers = CatalogUseCase(session).list_market_sellers(market_id)
+    if sellers is None:
+        return _not_found(f"Место торговли {market_id} не найдено или недоступно")
+    return MarketSellerListResponse(sellers=[MarketSellerItem(**seller) for seller in sellers])
 
 
 @router.get("/sellers/{seller_id}", response_model=SellerCardResponse)

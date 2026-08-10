@@ -59,6 +59,40 @@ class MarketItem(BaseModel):
     longitude: Decimal | None
 
 
+class MapMarketItem(BaseModel):
+    """Точка на карте. Координаты не nullable, в отличие от карточки продавца:
+    точку без координат на карту не поставить, и в выдачу она не попадает."""
+
+    id: int
+    name: str
+    type: str
+    address: str
+    latitude: Decimal
+    longitude: Decimal
+    seller_count: int
+
+
+class MapMarketListResponse(BaseModel):
+    markets: list[MapMarketItem]
+
+
+class MarketSellerItem(BaseModel):
+    """Продавец в списке по нажатию на пин. Ряд и место пусты у лавки — там их
+    нет; у рынка они и помогают найти продавца внутри."""
+
+    seller_id: int
+    name: str
+    row: str | None
+    place: str | None
+    working_hours: str | None
+    short_description: str | None
+    product_count: int
+
+
+class MarketSellerListResponse(BaseModel):
+    sellers: list[MarketSellerItem]
+
+
 class SellerCardResponse(BaseModel):
     """Карточка продавца в Customer UI. `status` не отдаётся: неактивный
     продавец покупателю просто не существует (404)."""
