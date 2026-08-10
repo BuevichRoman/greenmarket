@@ -13,7 +13,7 @@
 
 Платформенная таблица (существует на платформе, не создаётся заново): `users` (в БД `aristotel_taxi`). Отдельной таблицы User в GreenMarket нет — поля `moderator_id` (SellerProduct), `published_by` (CatalogPublication) и `author_user_id` (SellerProfileChange) ссылаются напрямую на `users.id_user`.
 
-Новые таблицы GreenMarket: ProductGroup, Product, Seller, Photo, SellerProduct, SellerProductPhoto, CatalogPublication, SellerProfileChange.
+Новые таблицы GreenMarket: ProductGroup, Product, Seller, Market, Photo, SellerProduct, SellerProductPhoto, CatalogPublication, SellerProfileChange.
 
 ## Общая схема
 
@@ -63,6 +63,16 @@ Photo
 **Основные поля:** `id`, `product_group_id`, `name`, `description`, `is_active`, `created_at`, `updated_at`.
 
 **Особенности:** одна запись соответствует одному товару; используется всеми продавцами; не содержит коммерческих характеристик.
+
+## Market
+
+**Назначение:** рынок, на котором торгуют продавцы (миграция 017). Отделён от профиля продавца потому, что название, адрес и координаты принадлежат рынку, а не каждому из сотен его продавцов ([Seller_Profile.md](../02-domain/Seller_Profile.md), §3). Ряд и место остаются в профиле продавца — это его координаты внутри рынка.
+
+**Основные поля:** `id`, `name`, `address`, `latitude`, `longitude`, `is_active`, `created_at`, `updated_at`.
+
+**Особенности:** координаты допускают NULL — рынок заводится по названию и адресу, точку снимают позже; такой рынок показывается покупателю без точки на карте, а не прячется. `latitude`/`longitude` — `DECIMAL(10,7)`, а не `DOUBLE`: координаты показываются и сравниваются как есть, двоичная погрешность здесь ни к чему. Пределы координат проверяет Admin API, а не БД: `DECIMAL(10,7)` молча принял бы широту 95°.
+
+**Связь с продавцом:** профильным свойством `gm_seller_market_id` в платформенном `users_prop`, как и остальной профиль. Внешнего ключа оттуда сюда нет и быть не может — `users_prop` принадлежит платформе; существование и активность рынка проверяет `SellerProfileService`.
 
 ## SellerProduct
 
@@ -147,6 +157,7 @@ Photo
 | Photo → SellerProductPhoto | один ко многим |
 | Seller → CatalogPublication | один ко многим |
 | Seller → SellerProfileChange | один ко многим |
+| Market → Seller | один ко многим (логическая связь профильным свойством `gm_seller_market_id`, внешнего ключа нет — значение хранится в платформенном `users_prop`) |
 
 ## Ограничения модели
 

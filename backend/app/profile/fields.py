@@ -50,6 +50,10 @@ PROFILE_FIELDS: tuple[ProfileField, ...] = (
     ProfileField("short_description", "gm_seller_short_description", VALUE_TYPE_TEXT, 2000),
     ProfileField("phone", "gm_seller_phone", VALUE_TYPE_VARCHAR, 255),
     ProfileField("whatsapp", "gm_seller_whatsapp", VALUE_TYPE_VARCHAR, 255),
+    # Ссылка на Market.id строкой — таблица значений платформы хранит varchar.
+    # Существование и активность рынка проверяет SellerProfileService: внешнего
+    # ключа из users_prop в таблицу GreenMarket быть не может.
+    ProfileField("market_id", "gm_seller_market_id", VALUE_TYPE_VARCHAR, 20),
 )
 
 _BY_NAME = {field.name: field for field in PROFILE_FIELDS}

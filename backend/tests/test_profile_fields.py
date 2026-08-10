@@ -10,6 +10,10 @@ def test_profile_fields_cover_stage1_profile():
         "short_description",
         "phone",
         "whatsapp",
+        # Добавлено 10.08.2026 вместе со справочником рынков (миграция 017):
+        # рынок — часть профиля продавца, хотя его название, адрес и координаты
+        # принадлежат самому рынку (Seller_Profile.md, §3).
+        "market_id",
     ]
 
 

@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.api.v1.publications import get_seller_access_resolver
 from app.api.v1.schemas import error_response
 from app.api.v1.seller_schemas import (
+    MarketListResponse,
+    MarketOption,
     SellerActivationRequest,
     SellerActivationResponse,
     SellerProfileResponse,
@@ -14,6 +16,7 @@ from app.api.v1.seller_schemas import (
 )
 from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
+from app.infrastructure.repositories.market_repository import MarketRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.platform.seller_gateway import SellerGateway
 from app.profile.errors import ProfileValidationError, SellerNotFoundError
@@ -77,6 +80,27 @@ def _profile_response(seller_id: int, *, session: Session) -> SellerProfileRespo
         status="ACTIVE" if seller.is_active else "INACTIVE",
         suggested_phone=service.suggested_phone(seller_id),
         **profile,
+    )
+
+
+@router.get("/markets", response_model=MarketListResponse)
+def list_markets(
+    access_token: str,
+    session: Session = Depends(get_session),
+    resolve_access=Depends(get_seller_access_resolver),
+) -> MarketListResponse | JSONResponse:
+    """Справочник рынков для выпадающего списка в форме профиля.
+
+    Только открытые рынки: закрытый выбрать нельзя, его и не предлагаем.
+    Токен требуется, как и у остального Seller API, — справочник живёт в
+    кабинете продавца, а не в публичном каталоге.
+    """
+    if resolve_access(access_token) is None:
+        return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
+
+    markets = MarketRepository(session).list_active()
+    return MarketListResponse(
+        markets=[MarketOption(id=m.id, name=m.name, address=m.address) for m in markets]
     )
 
 

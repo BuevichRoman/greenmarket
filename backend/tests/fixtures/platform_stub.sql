@@ -98,4 +98,9 @@ INSERT INTO users_prop (var, name_ru, name_en, value_type, visibility) VALUES
     ('gm_seller_working_hours',     'GreenMarket: часы работы',               'GreenMarket: working hours',     1, 15),
     ('gm_seller_short_description', 'GreenMarket: краткое описание продавца', 'GreenMarket: short description', 2, 15),
     ('gm_seller_phone',             'GreenMarket: телефон продавца',          'GreenMarket: seller phone',      1, 15),
-    ('gm_seller_whatsapp',          'GreenMarket: WhatsApp продавца',         'GreenMarket: seller WhatsApp',   1, 15);
+    ('gm_seller_whatsapp',          'GreenMarket: WhatsApp продавца',         'GreenMarket: seller WhatsApp',   1, 15),
+    -- Заведено 10.08.2026 вместе со справочником рынков (миграция 017). Хранит
+    -- Market.id строкой: users_prop умеет varchar и text, а внешнего ключа
+    -- отсюда в таблицу GreenMarket быть не может — существование рынка
+    -- проверяет SellerProfileService.
+    ('gm_seller_market_id',         'GreenMarket: рынок продавца',            'GreenMarket: seller market',     1, 15);

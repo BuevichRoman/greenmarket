@@ -46,12 +46,24 @@ class SellerOfferItem(BaseModel):
     photos: list[str]
 
 
+class MarketItem(BaseModel):
+    """Рынок в карточке продавца. Координаты могут быть не сняты — тогда
+    рынок показывается адресом, но на карту не ставится."""
+
+    id: int
+    name: str
+    address: str
+    latitude: Decimal | None
+    longitude: Decimal | None
+
+
 class SellerCardResponse(BaseModel):
     """Карточка продавца в Customer UI. `status` не отдаётся: неактивный
     продавец покупателю просто не существует (404)."""
 
     seller_id: int
     name: str
+    market: MarketItem | None
     row: str | None
     place: str | None
     working_hours: str | None

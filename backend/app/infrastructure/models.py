@@ -51,6 +51,27 @@ class Product(Base):
     group: Mapped["ProductGroup"] = relationship(back_populates="products")
 
 
+class Market(Base):
+    """Рынок, на котором торгуют продавцы (миграция 017).
+
+    Своя таблица GreenMarket, а не платформенная: название, адрес и координаты
+    принадлежат рынку, а не каждому из сотен его продавцов (Seller_Profile.md,
+    §3). Продавец ссылается на рынок профильным свойством `gm_seller_market_id`
+    в платформенном `users_prop` — внешнего ключа оттуда сюда нет.
+    """
+
+    __tablename__ = "Market"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200))
+    address: Mapped[str] = mapped_column(String(500))
+    latitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    is_active: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class SellerProduct(Base):
     __tablename__ = "SellerProduct"
 

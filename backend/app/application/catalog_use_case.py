@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.infrastructure.repositories.market_repository import MarketRepository
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
@@ -168,4 +169,23 @@ class CatalogUseCase:
         if row is None or not row.is_active:
             return None
         profile = SellerProfileService(self.session).read(seller_id)
-        return {"seller_id": row.seller_id, "name": row.name, **profile}
+        # Идентификатор рынка меняется на сам рынок: покупателю нужны название,
+        # адрес и координаты для экрана «Карта», а `market_id` для него — ничто.
+        market_id = profile.pop("market_id")
+        return {"seller_id": row.seller_id, "name": row.name, "market": self._market(market_id), **profile}
+
+    def _market(self, market_id: str | None) -> dict | None:
+        if market_id is None or not market_id.isdigit():
+            return None
+        market = MarketRepository(self.session).find_by_id(int(market_id))
+        # Закрытый рынок покупателю не показывается — по той же логике, по
+        # которой не показывается деактивированный продавец.
+        if market is None or not market.is_active:
+            return None
+        return {
+            "id": market.id,
+            "name": market.name,
+            "address": market.address,
+            "latitude": market.latitude,
+            "longitude": market.longitude,
+        }
