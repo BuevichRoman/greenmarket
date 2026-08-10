@@ -60,15 +60,17 @@ def test_list_active_filters_by_group_id(session):
 
 
 def test_list_active_filters_by_search_case_insensitive(session):
-    # Названия ниже намеренно не пересекаются с database/seeders/002_products.sql
-    # (там уже есть активный товар "Яблоко") — иначе поиск подхватит и его.
+    # Проверяются только товары этого теста: БД разработчика содержит и сиды, и
+    # выгруженные каталоги реальных продавцов, где «Киви» встречается сам по
+    # себе. Тест обязан переживать любые посторонние строки.
     group_id = insert_product_group(session, name="Группа для поиска")
-    kiwi_id = insert_product(session, group_id=group_id, name="Киви Хейворд")
-    insert_product(session, group_id=group_id, name="Манго Кенийское")
+    kiwi_id = insert_product(session, group_id=group_id, name="Киви Хейворд поиск")
+    mango_id = insert_product(session, group_id=group_id, name="Манго Кенийское поиск")
 
-    result = ProductRepository(session).list_active(search="киви")
+    found_ids = {p.id for p in ProductRepository(session).list_active(search="киви хейворд")}
 
-    assert [p.id for p in result] == [kiwi_id]
+    assert kiwi_id in found_ids
+    assert mango_id not in found_ids
 
 
 def test_get_active_returns_none_for_inactive_product(session):

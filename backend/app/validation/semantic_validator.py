@@ -1,5 +1,6 @@
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
 from app.infrastructure.repositories.product_repository import ProductRepository
+from app.parsing.cell_values import parse_supply_date
 from app.parsing.raw_workbook import RawWorkbook
 from app.platform.photo_gateway import PhotoGateway
 from app.validation.errors import ValidationError, ValidationResult
@@ -12,8 +13,15 @@ _COL_PRICE = 4
 _COL_UNIT = 5
 _COL_STOCK = 6
 _COL_PHOTOS = 9
+_COL_ORIGIN_COUNTRY = 10
+_COL_SUPPLY_DATE = 11
 
 _OTHER_PRODUCT_PLACEHOLDER = "Прочее"
+
+# Ширина SellerProduct.origin_country (миграция 016). На проде sql_mode пуст —
+# слишком длинная строка не упала бы, а молча обрезалась, поэтому длину
+# проверяет валидатор, а не база.
+_MAX_ORIGIN_COUNTRY_LENGTH = 100
 
 
 def _cell(row: list[object], index: int) -> object:
@@ -106,7 +114,47 @@ class SemanticValidator:
 
         errors += self._validate_photos(sheet_name, row_number, _cell(row, _COL_PHOTOS))
 
+        errors += self._validate_origin_country(sheet_name, row_number, _cell(row, _COL_ORIGIN_COUNTRY))
+        errors += self._validate_supply_date(sheet_name, row_number, _cell(row, _COL_SUPPLY_DATE))
+
         return errors
+
+    def _validate_origin_country(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
+        # Колонка необязательная: пусто и отсутствие колонки (книга шаблона 2.1)
+        # одинаково означают «продавец страну не указал».
+        if value is None or str(value).strip() == "":
+            return []
+        if len(str(value).strip()) > _MAX_ORIGIN_COUNTRY_LENGTH:
+            return [
+                ValidationError(
+                    sheet=sheet_name,
+                    row=row_number,
+                    column="Страна происхождения",
+                    message=f"Длина не должна превышать {_MAX_ORIGIN_COUNTRY_LENGTH} символов",
+                )
+            ]
+        return []
+
+    def _validate_supply_date(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
+        """Проверяется только разбираемость значения.
+
+        Дата в будущем — не ошибка (решение Валентина 10.08.2026): будущая дата
+        означает планируемую поставку, прошедшая — состоявшийся завоз. Для
+        хранения это одно и то же поле, различает их тот, кто показывает
+        товар покупателю, сравнивая дату с текущей.
+        """
+        try:
+            parse_supply_date(value)
+        except ValueError:
+            return [
+                ValidationError(
+                    sheet=sheet_name,
+                    row=row_number,
+                    column="Дата поставки",
+                    message=f"'{value}' не является датой (ожидается формат ДД.ММ.ГГГГ)",
+                )
+            ]
+        return []
 
     def _validate_photos(self, sheet_name: str, row_number: int, value: object) -> list[ValidationError]:
         # Пустое фото — не ошибка: строка сохраняется, но покупателю не показывается

@@ -43,6 +43,18 @@ class ProfileValueTooLongError(ProfileValidationError):
         self.max_length = max_length
 
 
+class UnknownMarketError(ProfileValidationError):
+    """Продавец выбрал рынок, которого нет или который закрыт.
+
+    Проверка живёт в сервисе, а не в базе: значение хранится в платформенном
+    `users_prop`, внешнего ключа оттуда в таблицу Market быть не может.
+    """
+
+    def __init__(self, raw_value: str):
+        super().__init__(f"Рынок «{raw_value}» не найден или закрыт")
+        self.raw_value = raw_value
+
+
 class SellerNotFoundError(ProfileError):
     """Продавца с таким id нет — эндпоинту это 404."""
 

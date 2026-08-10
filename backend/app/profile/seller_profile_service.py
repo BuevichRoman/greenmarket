@@ -10,6 +10,7 @@
 
 from sqlalchemy.orm import Session
 
+from app.infrastructure.repositories.market_repository import MarketRepository
 from app.infrastructure.repositories.seller_profile_change_repository import (
     SellerProfileChangeRepository,
 )
@@ -18,6 +19,7 @@ from app.platform.user_prop_gateway import UserPropGateway
 from app.profile.errors import (
     ProfileValueTooLongError,
     SellerNotFoundError,
+    UnknownMarketError,
     UnknownProfileFieldError,
 )
 from app.profile.fields import PROFILE_FIELDS, ProfileField, field_by_name
@@ -29,6 +31,7 @@ class SellerProfileService:
         self.props = UserPropGateway(session)
         self.sellers = SellerGateway(session)
         self.journal = SellerProfileChangeRepository(session)
+        self.markets = MarketRepository(session)
         # user_id продавца за время жизни сервиса не меняется, а спрашивают его
         # много раз за запрос: read() на каждый вызов, suggested_phone() поверх
         # read() ещё раз, apply() до и после. Кэш ключом по seller_id, а не
@@ -101,6 +104,23 @@ class SellerProfileService:
             validated[field] = new_value
         return validated
 
+    def _check_market(self, validated: dict[ProfileField, str | None]) -> None:
+        """Рынок обязан существовать и быть открытым.
+
+        Проверка здесь, а не в БД: значение лежит в платформенном `users_prop`,
+        внешнего ключа оттуда в таблицу Market нет. Без неё профиль мог бы
+        сослаться на удалённый рынок, и карточка продавца осталась бы без
+        адреса, ничем этого не объяснив. Очистка поля (`None`) допустима —
+        продавец вправе не указывать рынок.
+        """
+        field = field_by_name("market_id")
+        raw = validated.get(field)
+        if raw is None:
+            return
+        market = self.markets.find_by_id(int(raw)) if raw.isdigit() else None
+        if market is None or not market.is_active:
+            raise UnknownMarketError(raw)
+
     def apply(
         self,
         seller_id: int,
@@ -120,6 +140,7 @@ class SellerProfileService:
         случая различать.
         """
         validated = self._validated_values(values)
+        self._check_market(validated)
 
         user_id = self._user_id(seller_id)
         if user_id is None:

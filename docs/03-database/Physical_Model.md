@@ -13,7 +13,7 @@
 
 Платформенная таблица (существует на платформе, не создаётся заново): `users` (в БД `aristotel_taxi`). Отдельной таблицы User в GreenMarket нет — поля `moderator_id` (SellerProduct), `published_by` (CatalogPublication) и `author_user_id` (SellerProfileChange) ссылаются напрямую на `users.id_user`.
 
-Новые таблицы GreenMarket: ProductGroup, Product, Seller, Photo, SellerProduct, SellerProductPhoto, CatalogPublication, SellerProfileChange.
+Новые таблицы GreenMarket: ProductGroup, Product, Seller, Market, Photo, SellerProduct, SellerProductPhoto, CatalogPublication, SellerProfileChange.
 
 ## Общая схема
 
@@ -64,11 +64,23 @@ Photo
 
 **Особенности:** одна запись соответствует одному товару; используется всеми продавцами; не содержит коммерческих характеристик.
 
+## Market
+
+**Назначение:** место торговли (миграция 017) — рынок с рядами и множеством продавцов либо отдельно стоящая лавка в городе или деревне (`type`, требование от 10.08.2026). Отдельной таблицы под лавку нет: набор полей и способ показа на карте одинаковые, различается только смысл — у лавки один продавец и нет ряда с местом. Отделён от профиля продавца потому, что название, адрес и координаты принадлежат рынку, а не каждому из сотен его продавцов ([Seller_Profile.md](../02-domain/Seller_Profile.md), §3). Ряд и место остаются в профиле продавца — это его координаты внутри рынка.
+
+**Основные поля:** `id`, `name`, `type` (`MARKET`/`SHOP`), `address`, `latitude`, `longitude`, `is_active`, `created_at`, `updated_at`.
+
+**Особенности:** координаты допускают NULL — точка заводится по названию и адресу, координаты снимают позже; такая точка показывается покупателю без пина на карте, а не прячется. `type` хранится строкой с CHECK, а не ENUM (Coding_Standard.md, «Статусы»): расширение перечня — ярмарка, павильон — не должно требовать изменения структуры таблицы. `latitude`/`longitude` — `DECIMAL(10,7)`, а не `DOUBLE`: координаты показываются и сравниваются как есть, двоичная погрешность здесь ни к чему. Пределы координат проверяет Admin API, а не БД: `DECIMAL(10,7)` молча принял бы широту 95°.
+
+**Связь с продавцом:** профильным свойством `gm_seller_market_id` в платформенном `users_prop`, как и остальной профиль. Внешнего ключа оттуда сюда нет и быть не может — `users_prop` принадлежит платформе; существование и активность рынка проверяет `SellerProfileService`.
+
 ## SellerProduct
 
 **Назначение:** предложение конкретного продавца. Основная рабочая таблица подсистемы — `id` этой таблицы одновременно является `SellerProductId`, постоянным техническим идентификатором позиции в рабочем каталоге продавца (см. [Catalog_Template.md](../02-domain/Catalog_Template.md)).
 
-**Основные поля:** `id`, `seller_id`, `product_id` (NULL допускается до модерации), `seller_name`, `unit`, `price`, `stock`, `description`, `is_published`, `moderation_status`, `moderator_id`, `moderated_at`, `moderation_comment`, `created_at`, `updated_at`.
+**Основные поля:** `id`, `seller_id`, `product_id` (NULL допускается до модерации), `seller_name`, `unit`, `price`, `stock`, `description`, `origin_country`, `supply_date`, `is_published`, `moderation_status`, `moderator_id`, `moderated_at`, `moderation_comment`, `created_at`, `updated_at`.
+
+**`origin_country` и `supply_date`** (миграция 016) — страна происхождения и дата завоза партии, как их указал продавец. Оба поля принадлежат предложению, а не товарной позиции: один и тот же товар у разных продавцов приезжает из разных стран и разной свежести. Оба допускают NULL — соответствующие колонки книги продавца необязательны и появились только в `TemplateVersion 2.2`. `origin_country` — свободная строка, а не FK: справочника стран в системе нет.
 
 **Значения `moderation_status`:** `WAIT_PRODUCT` (товар без связи с Product, ожидает модерации), `IN_PROGRESS` (модерация начата), `RESOLVED` (модерация завершена).
 
@@ -145,6 +157,7 @@ Photo
 | Photo → SellerProductPhoto | один ко многим |
 | Seller → CatalogPublication | один ко многим |
 | Seller → SellerProfileChange | один ко многим |
+| Market → Seller | один ко многим (логическая связь профильным свойством `gm_seller_market_id`, внешнего ключа нет — значение хранится в платформенном `users_prop`) |
 
 ## Ограничения модели
 

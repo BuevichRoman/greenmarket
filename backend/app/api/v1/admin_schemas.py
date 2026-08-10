@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +68,43 @@ class ProductGroupUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     parent_id: int | None = None
     sort_order: int | None = None
+    is_active: bool | None = None
+
+
+class MarketSummary(BaseModel):
+    id: int
+    name: str
+    type: str
+    address: str
+    latitude: Decimal | None
+    longitude: Decimal | None
+    is_active: bool
+
+
+class MarketListResponse(BaseModel):
+    markets: list[MarketSummary]
+
+
+class MarketCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    # Рынок по умолчанию: лавка — частный случай, который указывают явно.
+    type: Literal["MARKET", "SHOP"] = "MARKET"
+    address: str = Field(min_length=1, max_length=500)
+    # Границы — реальные пределы координат: значение за ними это опечатка, а не
+    # точка на Земле. Проверяет схема, а не БД: DECIMAL(10,7) молча принял бы 95°.
+    latitude: Decimal | None = Field(default=None, ge=-90, le=90)
+    longitude: Decimal | None = Field(default=None, ge=-180, le=180)
+
+
+class MarketUpdateRequest(BaseModel):
+    """Правится только то, что реально пришло в теле (`model_fields_set`):
+    `{"latitude": null}` снимает координату, отсутствие ключа её не трогает."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    type: Literal["MARKET", "SHOP"] | None = None
+    address: str | None = Field(default=None, min_length=1, max_length=500)
+    latitude: Decimal | None = Field(default=None, ge=-90, le=90)
+    longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     is_active: bool | None = None
 
 
@@ -152,6 +190,7 @@ class AdminSellerProfileResponse(BaseModel):
     short_description: str | None
     phone: str | None
     whatsapp: str | None
+    market_id: str | None
 
 
 class AdminSellerProfileUpdateRequest(BaseModel):
@@ -171,6 +210,7 @@ class AdminSellerProfileUpdateRequest(BaseModel):
     short_description: str | None = None
     phone: str | None = None
     whatsapp: str | None = None
+    market_id: str | None = None
 
     def changed_values(self) -> dict[str, str | None]:
         return self.model_dump(exclude_unset=True)

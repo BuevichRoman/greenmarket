@@ -1,3 +1,5 @@
+from openpyxl.utils import get_column_letter
+
 from app.catalog_template.build import build_workbook
 from app.catalog_template.data import COLUMN_HINTS, GROUP_ROWS, PRODUCT_ROWS, TEMPLATE_ID, TEMPLATE_VERSION
 from app.validation.structure_validator import (
@@ -132,7 +134,7 @@ def test_build_workbook_is_deterministic():
 
 
 def test_build_workbook_accepts_prefilled_catalog_rows():
-    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "1"]
+    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "1", "Марокко", "01.08.2026"]
     wb = build_workbook(catalog_rows=[row])
     assert _sheet_values(wb[CATALOG_SHEET])[1] == row
 
@@ -146,7 +148,8 @@ def test_catalog_sheet_has_autofilter_over_full_data_range():
     wb = build_workbook()
     ws = wb[CATALOG_SHEET]
     last_row = max(ws.max_row, 1000)
-    assert str(ws.auto_filter.ref) == f"A1:J{last_row}"
+    last_column = get_column_letter(len(CATALOG_COLUMNS))
+    assert str(ws.auto_filter.ref) == f"A1:{last_column}{last_row}"
 
 
 def test_catalog_columns_have_content_fitting_width():
