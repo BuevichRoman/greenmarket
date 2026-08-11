@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,10 @@ class PublicationProduct:
     description: str | None
     attributes: str | None
     photo_ids: list[int]
+    # Шаблон 2.2. У книги шаблона 2.1 этих колонок нет физически, поэтому None
+    # здесь — штатное значение, а не «продавец забыл заполнить».
+    origin_country: str | None = None
+    supply_date: date | None = None
 
 
 @dataclass(frozen=True)

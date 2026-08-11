@@ -1,5 +1,6 @@
 import ast
 import inspect
+from datetime import date, datetime
 
 import pytest
 
@@ -27,9 +28,16 @@ SYSTEM_ROWS = [
 ]
 
 
-def make_workbook(catalog_rows: list[list[object]], extra_sheets: list[RawSheet] | None = None) -> RawWorkbook:
+CATALOG_HEADER_V22 = CATALOG_HEADER + ["Страна происхождения", "Дата поставки"]
+
+
+def make_workbook(
+    catalog_rows: list[list[object]],
+    extra_sheets: list[RawSheet] | None = None,
+    header: list[str] | None = None,
+) -> RawWorkbook:
     sheets = [
-        RawSheet(name="Каталог", index=0, rows=[CATALOG_HEADER, *catalog_rows]),
+        RawSheet(name="Каталог", index=0, rows=[header or CATALOG_HEADER, *catalog_rows]),
         RawSheet(name="_System", index=1, rows=SYSTEM_ROWS),
     ]
     if extra_sheets:
@@ -57,6 +65,28 @@ def test_maps_single_valid_row_into_publication_product():
     assert product.description == "Свежая морковь"
     assert product.attributes == "Сорт: Нантская"
     assert product.photo_ids == [5]
+
+
+def test_maps_origin_country_and_supply_date():
+    workbook = make_workbook(
+        [[1, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5", "Россия", datetime(2026, 8, 1)]],
+        header=CATALOG_HEADER_V22,
+    )
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.origin_country == "Россия"
+    assert product.supply_date == date(2026, 8, 1)
+
+
+def test_row_of_old_book_without_new_columns_maps_to_none():
+    """Книга шаблона 2.1 короче на две колонки — это не ошибка маппинга."""
+    workbook = make_workbook([[1, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5"]])
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.origin_country is None
+    assert product.supply_date is None
 
 
 def test_maps_multiple_catalog_rows_in_order():

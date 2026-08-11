@@ -162,6 +162,21 @@ class SellerGateway:
         rows = self.session.execute(text(self._LIST_COLUMNS + "ORDER BY s.id")).all()
         return [self._to_list_row(row) for row in rows]
 
+    def list_active_by_user_ids(self, user_ids: list[int]) -> list[SellerListRow]:
+        """Активные продавцы по платформенным `users.id_user`.
+
+        Карта идёт от места торговли к продавцам, а привязка к нему хранится
+        свойством пользователя платформы (`gm_seller_market_id`), поэтому на
+        входе тут user_id, а не seller_id.
+        """
+        if not user_ids:
+            return []
+        stmt = text(
+            self._LIST_COLUMNS + "WHERE s.user_id IN :user_ids AND s.is_active = TRUE ORDER BY u.name, s.id"
+        ).bindparams(bindparam("user_ids", expanding=True))
+        rows = self.session.execute(stmt, {"user_ids": user_ids}).all()
+        return [self._to_list_row(row) for row in rows]
+
     def find_list_row(self, seller_id: int) -> SellerListRow | None:
         row = self.session.execute(
             text(self._LIST_COLUMNS + "WHERE s.id = :seller_id"), {"seller_id": seller_id}

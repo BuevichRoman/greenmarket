@@ -11,9 +11,9 @@ moderator_id, published_by, photo_id) остаются обычными стол
 relationship().
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.database import Base
@@ -51,6 +51,36 @@ class Product(Base):
     group: Mapped["ProductGroup"] = relationship(back_populates="products")
 
 
+class Market(Base):
+    """Место торговли (миграция 017): рынок или отдельно стоящая лавка.
+
+    Своя таблица GreenMarket, а не платформенная: название, адрес и координаты
+    принадлежат месту торговли, а не каждому из сотен его продавцов
+    (Seller_Profile.md, §3). Продавец ссылается на него профильным свойством
+    `gm_seller_market_id` в платформенном `users_prop` — внешнего ключа оттуда
+    сюда нет.
+
+    `type` различает рынок (много продавцов, ряды и места) и лавку (один
+    продавец, ряда и места нет). Отдельной таблицы под лавку нет: поля и способ
+    показа на карте у них одинаковые.
+    """
+
+    __tablename__ = "Market"
+
+    MARKET = "MARKET"
+    SHOP = "SHOP"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200))
+    type: Mapped[str] = mapped_column(String(16))
+    address: Mapped[str] = mapped_column(String(500))
+    latitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    is_active: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class SellerProduct(Base):
     __tablename__ = "SellerProduct"
 
@@ -62,6 +92,8 @@ class SellerProduct(Base):
     stock: Mapped[float] = mapped_column(Numeric(12, 3))
     unit: Mapped[str] = mapped_column(String(30))
     description: Mapped[str | None] = mapped_column(Text)
+    origin_country: Mapped[str | None] = mapped_column(String(100))
+    supply_date: Mapped[date | None] = mapped_column(Date)
     is_published: Mapped[bool] = mapped_column(Boolean)
     moderation_status: Mapped[str] = mapped_column(String(30))
     moderator_id: Mapped[int | None] = mapped_column(Integer)

@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from sqlalchemy import text
 
 from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
@@ -17,6 +19,8 @@ HEADER = [
     "Описание",
     "Дополнительные характеристики",
     "Фото",
+    "Страна происхождения",
+    "Дата поставки",
 ]
 
 
@@ -131,6 +135,72 @@ def test_fully_empty_row_is_ignored(session):
     result = make_validator(session).validate(workbook)
 
     assert result.is_valid
+
+
+def test_empty_origin_and_supply_date_are_allowed(session):
+    """Обе колонки необязательны, и у книги шаблона 2.1 их вовсе нет."""
+    workbook = make_workbook([[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "", ""]])
+
+    result = make_validator(session).validate(workbook)
+
+    assert result.is_valid
+
+
+def test_valid_supply_date_has_no_errors(session):
+    workbook = make_workbook(
+        [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Марокко", "01.08.2026"]]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert result.is_valid
+
+
+def test_unparseable_supply_date_reports_error(session):
+    workbook = make_workbook(
+        [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Марокко", "как-нибудь на днях"]]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert not result.is_valid
+    assert any(e.column == "Дата поставки" for e in result.errors)
+
+
+def test_future_supply_date_is_allowed(session):
+    """Решение Валентина 10.08: дата больше сегодняшней — план поставки,
+    меньше — факт завоза. Для бэкенда это одно и то же поле, поэтому будущая
+    дата не ошибка, а осмысленное значение."""
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
+    workbook = make_workbook(
+        [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Марокко", tomorrow]]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert result.is_valid
+
+
+def test_today_supply_date_is_allowed(session):
+    today = date.today().strftime("%d.%m.%Y")
+    workbook = make_workbook(
+        [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Марокко", today]]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert result.is_valid
+
+
+def test_too_long_origin_country_reports_error(session):
+    workbook = make_workbook(
+        [[1, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "", "Я" * 101, ""]]
+    )
+
+    result = make_validator(session).validate(workbook)
+
+    assert not result.is_valid
+    assert any(e.column == "Страна происхождения" for e in result.errors)
 
 
 def test_empty_catalog_sheet_has_no_errors(session):

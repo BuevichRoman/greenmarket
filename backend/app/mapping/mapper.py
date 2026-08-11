@@ -1,5 +1,6 @@
 from app.mapping.errors import MapperError
 from app.mapping.publication_model import PublicationMetadata, PublicationModel, PublicationProduct
+from app.parsing.cell_values import parse_supply_date
 from app.parsing.raw_workbook import RawSheet, RawWorkbook
 from app.validation.errors import ValidationResult
 from app.validation.structure_validator import CATALOG_COLUMNS, CATALOG_SHEET, SYSTEM_FIELDS, SYSTEM_SHEET
@@ -17,6 +18,8 @@ _COL_STOCK = _COLUMN_INDEX["Остаток"]
 _COL_DESCRIPTION = _COLUMN_INDEX["Описание"]
 _COL_ATTRIBUTES = _COLUMN_INDEX["Дополнительные характеристики"]
 _COL_PHOTOS = _COLUMN_INDEX["Фото"]
+_COL_ORIGIN_COUNTRY = _COLUMN_INDEX["Страна происхождения"]
+_COL_SUPPLY_DATE = _COLUMN_INDEX["Дата поставки"]
 
 
 def _cell(row: list[object], index: int) -> object:
@@ -76,6 +79,10 @@ class Mapper:
                 description=_to_str_or_none(_blank_to_none(_cell(row, _COL_DESCRIPTION))),
                 attributes=_to_str_or_none(_blank_to_none(_cell(row, _COL_ATTRIBUTES))),
                 photo_ids=_parse_photo_ids(_cell(row, _COL_PHOTOS)),
+                # У книги шаблона 2.1 этих колонок нет — _cell отдаёт None,
+                # строка короче ожидаемой здесь не ошибка (см. StructureValidator).
+                origin_country=_to_str_or_none(_blank_to_none(_cell(row, _COL_ORIGIN_COUNTRY))),
+                supply_date=parse_supply_date(_cell(row, _COL_SUPPLY_DATE)),
             )
         except (TypeError, ValueError) as exc:
             # Workbook уже должен быть провалидирован — сюда попадает только

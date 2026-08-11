@@ -285,3 +285,58 @@ def test_put_profile_records_seller_as_author_in_journal(committing_session):
     assert [(change.field, change.author_role, change.author_user_id) for change in changes] == [
         ("row", "SELLER", user_id)
     ]
+
+
+def insert_market(session, *, name: str, is_active: bool = True) -> int:
+    return session.execute(
+        text("INSERT INTO Market (name, address, is_active) VALUES (:name, 'Москва, Тестовая, 1', :is_active)"),
+        {"name": name, "is_active": is_active},
+    ).lastrowid
+
+
+def test_markets_returns_only_open_markets(committing_session):
+    client, _ = setup_client(committing_session)
+    open_id = insert_market(committing_session, name="Открытый рынок для книги")
+    closed_id = insert_market(committing_session, name="Закрытый рынок для книги", is_active=False)
+
+    response = client.get("/api/v1/seller/markets", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    ids = [market["id"] for market in response.json()["markets"]]
+    assert open_id in ids
+    assert closed_id not in ids
+
+
+def test_markets_rejects_invalid_token(committing_session):
+    client, _ = setup_client(committing_session)
+
+    response = client.get("/api/v1/seller/markets", params={"access_token": "не тот токен"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+
+
+def test_put_profile_saves_market(committing_session):
+    client, seller_id = setup_client(committing_session)
+    market_id = insert_market(committing_session, name="Рынок, выбранный из формы")
+
+    response = client.put(
+        "/api/v1/seller/profile", json={"access_token": VALID_TOKEN, "market_id": str(market_id)}
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["changed"] == ["market_id"]
+
+
+def test_put_profile_rejects_unknown_market(committing_session):
+    client, _ = setup_client(committing_session)
+
+    response = client.put(
+        "/api/v1/seller/profile", json={"access_token": VALID_TOKEN, "market_id": "999999"}
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"

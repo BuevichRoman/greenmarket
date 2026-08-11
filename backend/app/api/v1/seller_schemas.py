@@ -36,6 +36,9 @@ class SellerProfileResponse(BaseModel):
     short_description: str | None
     phone: str | None
     whatsapp: str | None
+    # Строкой, а не числом: значение хранится в платформенном users_prop, и
+    # форма книги подставляет его в выпадающий список как есть.
+    market_id: str | None
     suggested_phone: str | None
 
 
@@ -57,9 +60,25 @@ class SellerProfileUpdateRequest(BaseModel):
     short_description: str | None = None
     phone: str | None = None
     whatsapp: str | None = None
+    market_id: str | None = None
 
     def changed_values(self) -> dict[str, str | None]:
         return self.model_dump(exclude={"access_token"}, exclude_unset=True)
+
+
+class MarketOption(BaseModel):
+    """Пункт выпадающего списка мест торговли в форме профиля. Координаты форме
+    не нужны — она их не показывает и не правит, а `type` нужен: продавцу важно
+    отличить рынок от лавки, когда названия похожи."""
+
+    id: int
+    name: str
+    type: str
+    address: str
+
+
+class MarketListResponse(BaseModel):
+    markets: list[MarketOption]
 
 
 class SellerProfileUpdateResponse(BaseModel):

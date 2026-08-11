@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import text
 
 from app.application.catalog_use_case import CatalogUseCase
@@ -171,6 +173,48 @@ def test_get_product_returns_platform_seller_name_not_offer_title(session):
     result = CatalogUseCase(session).get_product(product_id)
 
     assert [offer["seller_name"] for offer in result["offers"]] == ["Ферма Ромашково"]
+
+
+def test_get_product_returns_product_group(session):
+    group_id = insert_product_group(session, name="Группа в карточке товара")
+    product_id = insert_product(session, group_id=group_id, name="Товар с товарной группой")
+    seller_id = insert_active_seller(session, name="Продавец для товарной группы")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    result = CatalogUseCase(session).get_product(product_id)
+
+    assert result["group_id"] == group_id
+    assert result["group_name"] == "Группа в карточке товара"
+
+
+def test_get_product_returns_origin_country_and_supply_date(session):
+    group_id = insert_product_group(session, name="Группа со страной происхождения")
+    product_id = insert_product(session, group_id=group_id, name="Товар со страной происхождения")
+    seller_id = insert_active_seller(session, name="Продавец со страной происхождения")
+    offer_id = insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+    session.execute(
+        text("UPDATE SellerProduct SET origin_country = 'Марокко', supply_date = '2026-08-01' WHERE id = :id"),
+        {"id": offer_id},
+    )
+
+    offer = CatalogUseCase(session).get_product(product_id)["offers"][0]
+
+    assert offer["origin_country"] == "Марокко"
+    assert offer["supply_date"] == date(2026, 8, 1)
+
+
+def test_get_product_returns_none_for_offer_without_origin_data(session):
+    """Товар продавца, работающего на старой книге, — оба поля пусты, и это
+    штатное состояние, а не отсутствие данных."""
+    group_id = insert_product_group(session, name="Группа без страны происхождения")
+    product_id = insert_product(session, group_id=group_id, name="Товар без страны происхождения")
+    seller_id = insert_active_seller(session, name="Продавец без страны происхождения")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    offer = CatalogUseCase(session).get_product(product_id)["offers"][0]
+
+    assert offer["origin_country"] is None
+    assert offer["supply_date"] is None
 
 
 def test_get_product_returns_none_for_product_without_visible_offers(session):

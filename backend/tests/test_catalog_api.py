@@ -110,6 +110,42 @@ def test_get_product_by_id_returns_offers(committing_session):
     assert body["offers"][0]["price"] == "15.00"
 
 
+def test_get_product_by_id_returns_product_group(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа для роутера карточки")
+    product_id = insert_product(committing_session, group_id=group_id, name="Товар с группой в роутере")
+    seller_id = insert_active_seller(committing_session, name="Продавец для группы в роутере")
+    insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=15)
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products/{product_id}")
+
+    app.dependency_overrides.clear()
+    body = response.json()
+    assert body["group_id"] == group_id
+    assert body["group_name"] == "Группа для роутера карточки"
+
+
+def test_get_product_by_id_returns_origin_country_and_supply_date(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа страны в роутере")
+    product_id = insert_product(committing_session, group_id=group_id, name="Товар страны в роутере")
+    seller_id = insert_active_seller(committing_session, name="Продавец страны в роутере")
+    offer_id = insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=15)
+    committing_session.execute(
+        text("UPDATE SellerProduct SET origin_country = 'Египет', supply_date = '2026-08-05' WHERE id = :id"),
+        {"id": offer_id},
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products/{product_id}")
+
+    app.dependency_overrides.clear()
+    offer = response.json()["offers"][0]
+    assert offer["origin_country"] == "Египет"
+    assert offer["supply_date"] == "2026-08-05"
+
+
 def test_get_product_by_id_returns_404_for_missing_product(committing_session):
     override_session(committing_session)
     client = TestClient(app)
@@ -167,7 +203,71 @@ def test_seller_card_returns_profile_fields(committing_session):
     # (Seller_Profile.md, §7). Появление непубличного поля — повод осознанно
     # переписать этот ассерт под фильтр в get_seller_card, а не дописать поле
     # в карточку, чтобы тест позеленел.
-    assert set(body) == {"seller_id", "name"} | {field.name for field in PROFILE_FIELDS}
+    #
+    # `market_id` — как раз такой случай (10.08.2026): идентификатор рынка
+    # покупателю бесполезен, ему нужны название, адрес и координаты, поэтому
+    # карточка отдаёт вместо него объект `market`.
+    profile_keys = {field.name for field in PROFILE_FIELDS} - {"market_id"}
+    assert set(body) == {"seller_id", "name", "market"} | profile_keys
+
+
+def test_seller_card_returns_market_with_coordinates(committing_session):
+    seller_id, user_id = insert_seller_with_user(committing_session, name="Продавец с рынком")
+    market_id = committing_session.execute(
+        text(
+            "INSERT INTO Market (name, address, latitude, longitude, is_active) "
+            "VALUES ('Даниловский рынок', 'Москва, Мытная, 74', 55.7150000, 37.6210000, TRUE)"
+        )
+    ).lastrowid
+    SellerProfileService(committing_session).apply(
+        seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER"
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/sellers/{seller_id}")
+
+    app.dependency_overrides.clear()
+    market = response.json()["market"]
+    assert market["id"] == market_id
+    assert market["name"] == "Даниловский рынок"
+    assert market["type"] == "MARKET"
+    assert market["address"] == "Москва, Мытная, 74"
+    assert (market["latitude"], market["longitude"]) == ("55.7150000", "37.6210000")
+
+
+def test_seller_card_returns_shop_type(committing_session):
+    """Лавка — отдельно стоящая точка (Валентин, 10.08): на карте её пин это
+    сам продавец, а не сотня продавцов одного рынка."""
+    seller_id, user_id = insert_seller_with_user(committing_session, name="Продавец с лавкой")
+    market_id = committing_session.execute(
+        text(
+            "INSERT INTO Market (name, type, address, is_active) "
+            "VALUES ('Лавка у дома', 'SHOP', 'Казань, Баумана, 5', TRUE)"
+        )
+    ).lastrowid
+    SellerProfileService(committing_session).apply(
+        seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER"
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/sellers/{seller_id}")
+
+    app.dependency_overrides.clear()
+    assert response.json()["market"]["type"] == "SHOP"
+
+
+def test_seller_card_without_market_returns_null(committing_session):
+    """Продавец, не выбравший рынок, — штатное состояние, а не ошибка."""
+    seller_id, _ = insert_seller_with_user(committing_session, name="Продавец без рынка")
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/sellers/{seller_id}")
+
+    app.dependency_overrides.clear()
+    assert response.json()["market"] is None
 
 
 def test_seller_card_hides_inactive_seller(committing_session):

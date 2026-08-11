@@ -32,6 +32,11 @@ CATALOG_COLUMNS = [
     _Column("Описание", required=False),
     _Column("Дополнительные характеристики", required=False),
     _Column("Фото", required=True),
+    # Шаблон 2.2 (Валентин, 09.08.2026): страна происхождения и дата завоза
+    # партии в карточке товара у покупателя. Добавлены в хвост и необязательны
+    # — книга шаблона 2.1 продолжает публиковаться без них, см. _validate_columns.
+    _Column("Страна происхождения", required=False),
+    _Column("Дата поставки", required=False),
 ]
 
 PRODUCT_GROUPS_COLUMNS = [
@@ -47,7 +52,7 @@ PRODUCTS_COLUMNS = [
 ]
 
 SYSTEM_FIELDS = ["TemplateVersion", "TemplateId"]
-SUPPORTED_TEMPLATE_VERSIONS = {"2.0", "2.1"}
+SUPPORTED_TEMPLATE_VERSIONS = {"2.0", "2.1", "2.2"}
 
 
 class StructureValidator:
@@ -85,12 +90,18 @@ class StructureValidator:
             if actual == column.name:
                 continue
             if actual is None:
-                kind = "обязательная" if column.required else "необязательная"
+                # Необязательной колонки может не быть физически: книги,
+                # выданные до выпуска очередной версии шаблона, короче — новые
+                # необязательные колонки всегда добавляются в хвост. Подмена или
+                # перестановка колонки этим не прикрыта: там actual не None, а
+                # чужой заголовок, и ошибка возникает веткой ниже.
+                if not column.required:
+                    continue
                 errors.append(
                     ValidationError(
                         sheet=sheet.name,
                         column=column.name,
-                        message=f"Отсутствует {kind} колонка '{column.name}' (позиция {index + 1})",
+                        message=f"Отсутствует обязательная колонка '{column.name}' (позиция {index + 1})",
                     )
                 )
             else:

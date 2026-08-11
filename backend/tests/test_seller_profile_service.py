@@ -7,6 +7,7 @@ from app.infrastructure.repositories.seller_profile_change_repository import (
 from app.profile.errors import (
     ProfileValueTooLongError,
     SellerNotFoundError,
+    UnknownMarketError,
     UnknownProfileFieldError,
 )
 from app.profile.seller_profile_service import SellerProfileService
@@ -150,6 +151,7 @@ def test_read_returns_all_fields_as_none_for_empty_profile(session, seller):
         "short_description": None,
         "phone": None,
         "whatsapp": None,
+        "market_id": None,
     }
 
 
@@ -363,7 +365,72 @@ def test_read_returns_empty_profile_for_missing_seller(session):
         "short_description": None,
         "phone": None,
         "whatsapp": None,
+        "market_id": None,
     }
+
+
+def insert_market(session, *, name: str, is_active: bool = True) -> int:
+    return session.execute(
+        text("INSERT INTO Market (name, address, is_active) VALUES (:name, 'Москва, Тестовая, 1', :is_active)"),
+        {"name": name, "is_active": is_active},
+    ).lastrowid
+
+
+def test_apply_stores_market_id(session, seller):
+    seller_id, user_id = seller
+    market_id = insert_market(session, name="Рынок для профиля")
+    service = SellerProfileService(session)
+
+    changed = service.apply(
+        seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER"
+    )
+    session.flush()
+
+    assert changed == ["market_id"]
+    assert service.read(seller_id)["market_id"] == str(market_id)
+
+
+def test_apply_rejects_unknown_market(session, seller):
+    """Внешнего ключа из users_prop в Market быть не может — проверять
+    существование рынка обязан сервис, иначе профиль сошлётся в пустоту."""
+    seller_id, user_id = seller
+
+    with pytest.raises(UnknownMarketError):
+        SellerProfileService(session).apply(
+            seller_id, {"market_id": "999999"}, author_user_id=user_id, author_role="SELLER"
+        )
+
+
+def test_apply_rejects_inactive_market(session, seller):
+    seller_id, user_id = seller
+    market_id = insert_market(session, name="Закрытый рынок для профиля", is_active=False)
+
+    with pytest.raises(UnknownMarketError):
+        SellerProfileService(session).apply(
+            seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER"
+        )
+
+
+def test_apply_rejects_non_numeric_market_id(session, seller):
+    seller_id, user_id = seller
+
+    with pytest.raises(UnknownMarketError):
+        SellerProfileService(session).apply(
+            seller_id, {"market_id": "Даниловский"}, author_user_id=user_id, author_role="SELLER"
+        )
+
+
+def test_apply_allows_clearing_market(session, seller):
+    seller_id, user_id = seller
+    market_id = insert_market(session, name="Рынок, который покинут")
+    service = SellerProfileService(session)
+    service.apply(seller_id, {"market_id": str(market_id)}, author_user_id=user_id, author_role="SELLER")
+
+    changed = service.apply(seller_id, {"market_id": None}, author_user_id=user_id, author_role="SELLER")
+    session.flush()
+
+    assert changed == ["market_id"]
+    assert service.read(seller_id)["market_id"] is None
 
 
 def test_apply_rejects_missing_seller(session, seller):
