@@ -39,6 +39,7 @@ function onOpen() {
     .createMenu('GreenMarket')
     .addItem('Открыть карточку', 'openCardForSelectedRow')
     .addItem('Добавить товар', 'openCardForNewRow')
+    .addItem('Профиль продавца', 'openSellerProfile')
     .addItem('Личный кабинет', 'openSellerCabinet')
     .addToUi();
 }

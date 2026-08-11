@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; font-size: 16px; }
+    label { display: block; margin-top: 14px; font-weight: bold; }
+    input[type="text"], textarea {
+      width: 100%; padding: 10px; box-sizing: border-box; margin-top: 6px;
+      font-size: 15px; font-family: Arial, sans-serif;
+    }
+    .header { border-bottom: 1px solid #ddd; padding-bottom: 12px; }
+    .header .name { font-size: 18px; font-weight: bold; }
+    .header .status { color: #888; font-size: 13px; margin-top: 4px; }
+    .hint { font-weight: normal; color: #888; font-size: 13px; }
+    .suggest { margin-top: 6px; font-size: 13px; color: #666; }
+    .suggest button {
+      background: none; border: none; color: #2a7a2a; cursor: pointer;
+      font-size: 13px; padding: 0; text-decoration: underline;
+    }
+    .warning { margin-top: 16px; color: #a06000; font-size: 13px; }
+    .actions { margin-top: 20px; display: flex; gap: 10px; }
+    button.primary { background: #2a7a2a; color: #fff; border: none; padding: 12px 22px; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    button.secondary { background: #eee; border: 1px solid #ccc; padding: 12px 22px; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    #status { margin-top: 12px; color: #888; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="name" id="sellerName"></div>
+    <div class="status" id="sellerStatus"></div>
+  </div>
+
+  <label>Телефон <span class="hint">— обязательно</span></label>
+  <input type="text" id="phone" maxlength="255" disabled>
+  <div class="suggest" id="phoneSuggest" style="display: none;">
+    В учётной записи указан <span id="suggestedPhoneText"></span> —
+    <button type="button" onclick="useSuggestedPhone()">подставить</button>
+  </div>
+
+  <label>WhatsApp <span class="hint">— обязательно</span></label>
+  <input type="text" id="whatsapp" maxlength="255" disabled>
+
+  <label>Место торговли <span class="hint">— обязательно</span></label>
+  <select id="market_id" disabled></select>
+  <div class="hint" id="marketHint"></div>
+
+  <label id="rowLabel">Ряд <span class="hint">— обязательно</span></label>
+  <input type="text" id="row" maxlength="255" disabled>
+
+  <label id="placeLabel">Место <span class="hint">— обязательно</span></label>
+  <input type="text" id="place" maxlength="255" disabled>
+
+  <label>Часы работы <span class="hint">— обязательно, например 09:00–18:00</span></label>
+  <input type="text" id="working_hours" maxlength="255" disabled>
+
+  <label>Краткое описание <span class="hint">— не обязательно</span></label>
+  <textarea id="short_description" rows="3" maxlength="2000" disabled></textarea>
+
+  <div class="warning" id="warning"></div>
+
+  <div class="actions">
+    <button class="primary" id="saveButton" onclick="save()" disabled>Сохранить</button>
+    <button class="secondary" id="cancelButton" onclick="google.script.host.close()">Отмена</button>
+  </div>
+  <div id="status"></div>
+
+  <script>
+    // FIELDS дублирует PROFILE_FIELDS в Profile.gs и backend/app/profile/fields.py;
+    // market_id — выпадающий список из GET /seller/markets, а не поле ввода,
+    // обязательные поля Stage 1 — из Seller_Profile.md, раздел 5.
+    // maxlength у полей выше равны лимитам оттуда же: 255 (users_prop_items_varchar)
+    // и 2000 (продуктовый лимит краткого описания).
+    var FIELDS = ['phone', 'whatsapp', 'market_id', 'row', 'place', 'working_hours', 'short_description'];
+    // Ряд и место обязательны только на рынке: у отдельно стоящей лавки их нет
+    // (Seller_Profile.md, раздел 5). Итоговый список считает requiredFields().
+    var ALWAYS_REQUIRED = ['phone', 'whatsapp', 'market_id', 'working_hours'];
+    var MARKET_ONLY_REQUIRED = ['row', 'place'];
+    var LABELS = {
+      phone: 'телефон',
+      whatsapp: 'WhatsApp',
+      market_id: 'место торговли',
+      row: 'ряд',
+      place: 'место',
+      working_hours: 'часы работы',
+    };
+
+    var loaded = {};           // значения с сервера на момент открытия — база для diff
+    var suggestedPhone = null; // учётный телефон платформы, если профильный ещё пуст
+    var marketTypeById = {};   // id точки → 'MARKET' | 'SHOP', нужен для ряда и места
+
+    function setStatus(text) {
+      document.getElementById('status').textContent = text || '';
+    }
+
+    function value(name) {
+      return document.getElementById(name).value.trim();
+    }
+
+    // Точка выбирается из справочника, а не вводится текстом: адрес и координаты
+    // принадлежат самой точке, их ведёт администратор (Seller_Profile.md, §3).
+    function fillMarkets(markets, selectedId) {
+      var select = document.getElementById('market_id');
+      select.innerHTML = '';
+      select.appendChild(new Option('— не выбрано —', ''));
+
+      markets.forEach(function (market) {
+        marketTypeById[String(market.id)] = market.type;
+        var label = (market.type === 'SHOP' ? 'Лавка' : 'Рынок') + ' · ' + market.name + ' · ' + market.address;
+        select.appendChild(new Option(label, String(market.id)));
+      });
+
+      // Точка, выбранная раньше и с тех пор закрытая, в справочник не попадает.
+      // Молча сбросить её нельзя — продавец не поймёт, почему адрес пропал.
+      if (selectedId && !marketTypeById.hasOwnProperty(selectedId)) {
+        select.appendChild(new Option('Прежняя точка (закрыта) — выберите новую', selectedId));
+      }
+      select.value = selectedId || '';
+    }
+
+    function selectedMarketType() {
+      return marketTypeById[value('market_id')] || null;
+    }
+
+    // Переезд с рынка в лавку: ряд и место там не существуют, и оставлять
+    // прежние значения нельзя — покупатель увидел бы у лавки «Ряд 3».
+    function onMarketChange() {
+      if (selectedMarketType() === 'SHOP') {
+        document.getElementById('row').value = '';
+        document.getElementById('place').value = '';
+      }
+      refreshHints();
+    }
+
+    // У лавки один продавец и нет ни рядов, ни мест — спрашивать их бессмысленно.
+    // Значения здесь только блокируются, но не стираются: форма открывается этим
+    // же кодом, и очистка на открытии молча затёрла бы уже сохранённые ряд с
+    // местом. Стирает их onMarketChange — то есть осознанная смена точки.
+    function refreshMarketFields() {
+      var isShop = selectedMarketType() === 'SHOP';
+      ['row', 'place'].forEach(function (name) {
+        var input = document.getElementById(name);
+        input.disabled = isShop;
+        var label = document.getElementById(name + 'Label');
+        label.querySelector('.hint').textContent = isShop ? '— у лавки не заполняется' : '— обязательно';
+      });
+      document.getElementById('marketHint').textContent = isShop
+        ? 'Лавка — отдельно стоящая точка: на карте покупатель видит именно вас.'
+        : (selectedMarketType() === 'MARKET' ? 'Рынок: на карте одна точка на всех продавцов, найти вас помогают ряд и место.' : '');
+    }
+
+    function requiredFields() {
+      return selectedMarketType() === 'SHOP'
+        ? ALWAYS_REQUIRED
+        : ALWAYS_REQUIRED.concat(MARKET_ONLY_REQUIRED);
+    }
+
+    function fillForm(payload) {
+      var data = payload.profile;
+      fillMarkets(payload.markets, data.market_id === null || data.market_id === undefined ? '' : String(data.market_id));
+      document.getElementById('sellerName').textContent = data.name || '';
+      document.getElementById('sellerStatus').textContent =
+        (data.status === 'ACTIVE' ? 'Активен' : 'Временно деактивирован') +
+        ' · название и статус меняет администратор';
+
+      FIELDS.forEach(function (name) {
+        var initial = (data[name] === null || data[name] === undefined) ? '' : String(data[name]);
+        loaded[name] = initial.trim();
+        var element = document.getElementById(name);
+        element.value = initial;
+        element.disabled = false;
+        // change — для выпадающего списка: input по нему не во всех браузерах.
+        element.addEventListener('input', refreshHints);
+        // change — для выпадающего списка: input по нему срабатывает не везде.
+        element.addEventListener('change', name === 'market_id' ? onMarketChange : refreshHints);
+      });
+
+      suggestedPhone = data.suggested_phone || null;
+      refreshHints();
+      document.getElementById('saveButton').disabled = false;
+    }
+
+    // Телефон профиля — витринный контакт, его видит покупатель; учётный номер
+    // платформы подставляется только по явному клику (design doc, решение 3).
+    function useSuggestedPhone() {
+      document.getElementById('phone').value = suggestedPhone;
+      refreshHints();
+    }
+
+    function missingFields() {
+      return requiredFields().filter(function (name) { return value(name) === ''; });
+    }
+
+    function refreshHints() {
+      setStatus('');
+      refreshMarketFields();
+      var showSuggest = Boolean(suggestedPhone) && value('phone') === '';
+      document.getElementById('suggestedPhoneText').textContent = suggestedPhone || '';
+      document.getElementById('phoneSuggest').style.display = showSuggest ? 'block' : 'none';
+
+      var missing = missingFields();
+      document.getElementById('warning').textContent = missing.length === 0
+        ? ''
+        : 'Покупатель не увидит: ' + missing.map(function (name) { return LABELS[name]; }).join(', ') + '.';
+    }
+
+    function buildDiff() {
+      var diff = {};
+      FIELDS.forEach(function (name) {
+        if (value(name) !== loaded[name]) diff[name] = value(name);
+      });
+      return diff;
+    }
+
+    function save() {
+      var diff = buildDiff();
+      if (Object.keys(diff).length === 0) {
+        setStatus('Изменений нет.');
+        return;
+      }
+      setStatus('Сохранение…');
+      document.getElementById('saveButton').disabled = true;
+      document.getElementById('cancelButton').disabled = true;
+      google.script.run
+        .withSuccessHandler(function () {
+          google.script.host.close();
+        })
+        .withFailureHandler(function (err) {
+          // Форма остаётся открытой: это единственное место, где живёт введённый текст.
+          setStatus('');
+          document.getElementById('saveButton').disabled = false;
+          document.getElementById('cancelButton').disabled = false;
+          alert('Ошибка сохранения: ' + err.message);
+        })
+        .saveProfile(diff, missingFields());
+    }
+
+    setStatus('Загрузка профиля…');
+    google.script.run
+      .withSuccessHandler(function (data) {
+        fillForm(data);
+        setStatus('');
+      })
+      .withFailureHandler(function (err) {
+        setStatus('Профиль не загружен — закройте окно и откройте заново.');
+        alert('Не удалось загрузить профиль: ' + err.message);
+      })
+      .getProfileData();
+  </script>
+</body>
+</html>
