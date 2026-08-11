@@ -24,7 +24,12 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https://green-market-nine(-[a-z0-9-]+)?\.vercel\.app$",
+    # Фронтендов у продукта несколько и они множатся: Customer UI Андрея
+    # (green-market-nine) и сборка заместителя (basket-ef9u, 11.08.2026).
+    # Суффикс `-[a-z0-9-]+` покрывает preview-развёртывания Vercel, которые
+    # получают собственный поддомен на каждый коммит, — иначе каждая ветка
+    # фронта упиралась бы в CORS.
+    allow_origin_regex=r"^https://(green-market-nine|basket-ef9u)(-[a-z0-9-]+)?\.vercel\.app$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
