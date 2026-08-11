@@ -52,7 +52,7 @@ def make_service(session) -> PublicationService:
     )
 
 
-def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None, photo_ids=None, origin_country=None, supply_date=None) -> PublicationProduct:
+def make_product(*, seller_product_id=None, seller_name="Ферма А", group="Тестовая группа PublicationService", name=None, price=50.0, unit="кг", stock=5.0, description=None, attributes=None, photo_ids=None, origin_country=None, supply_date=None, seller_sku=None) -> PublicationProduct:
     return PublicationProduct(
         seller_product_id=seller_product_id,
         seller_name=seller_name,
@@ -66,6 +66,7 @@ def make_product(*, seller_product_id=None, seller_name="Ферма А", group="
         photo_ids=photo_ids if photo_ids is not None else [],
         origin_country=origin_country,
         supply_date=supply_date,
+        seller_sku=seller_sku,
     )
 
 
@@ -721,3 +722,248 @@ def test_product_staying_hidden_is_not_counted_as_updated_again(committing_sessi
 
     assert result.updated_count == 0
     assert result.hidden_no_photo == ["Огурец"]
+
+
+# --- Сопоставление по артикулу продавца (шаблон 2.3) ------------------------
+# Дефект kwork/defect_publication_recreates_rows.md: книга не может принести
+# SellerProductId обратно, поэтому каждая публикация пересоздавала весь каталог.
+# Артикул приносит сам продавец, и он переживает перепубликацию.
+
+
+def test_republishing_same_book_with_sku_changes_nothing(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма артикул повтор")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="sku-repeat.jpg")
+    service = make_service(committing_session)
+
+    book = [make_product(seller_name="Морковь", price=50, photo_ids=[photo], seller_sku="PROD-1001")]
+    service.publish(make_model(seller_id, book), published_by=user_id, publication_key="sku-1", catalog_hash="sku-h1")
+    first_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, book), published_by=user_id, publication_key="sku-2", catalog_hash="sku-h2"
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 0, 0)
+    rows = SellerProductRepository(committing_session).list_by_seller(seller_id)
+    assert [row.id for row in rows] == [first_id]
+
+
+def test_sku_survives_renaming_the_product(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма артикул переименование")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Морковь", price=50, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="rename-1", catalog_hash="rename-h1",
+    )
+    first_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_name="Морковь мытая", price=50, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="rename-2", catalog_hash="rename-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 1, 0)
+    row = SellerProductRepository(committing_session).find_by_id(first_id)
+    assert row.seller_name == "Морковь мытая"
+
+
+def test_new_sku_creates_product_instead_of_conflict(committing_session):
+    # В отличие от SellerProductId, незнакомый артикул — это не «книга врёт»,
+    # а новый товар: артикул выдаёт продавец, а не сервер.
+    seller_id = insert_seller(committing_session, name="Ферма артикул новый")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_name="Свёкла", price=30, seller_sku="PROD-9999")]),
+        published_by=user_id, publication_key="newsku-1", catalog_hash="newsku-h1",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (1, 0, 0)
+    assert SellerProductRepository(committing_session).list_by_seller(seller_id)[0].seller_sku == "PROD-9999"
+
+
+def test_changed_sku_deactivates_old_row_and_creates_new(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма артикул смена")
+    user_id = insert_user(committing_session, name="Admin")
+    photo = insert_photo(committing_session, s3_key="sku-change.jpg")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Лук", price=20, photo_ids=[photo], seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="chg-1", catalog_hash="chg-h1",
+    )
+    old_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_name="Лук", price=20, photo_ids=[photo], seller_sku="PROD-2002")]),
+        published_by=user_id, publication_key="chg-2", catalog_hash="chg-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (1, 0, 1)
+    assert SellerProductRepository(committing_session).find_by_id(old_id).is_published is False
+
+
+def test_sku_of_another_seller_is_not_matched(committing_session):
+    # Артикул уникален внутри каталога одного продавца: PROD-1001 у двух
+    # продавцов — разные товары, и подменить чужой товар через книгу нельзя.
+    other_seller_id = insert_seller(committing_session, name="Ферма чужая артикул")
+    seller_id = insert_seller(committing_session, name="Ферма своя артикул")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(other_seller_id, [make_product(seller_name="Чужой", price=1, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="other-1", catalog_hash="other-h1",
+    )
+    other_id = SellerProductRepository(committing_session).list_by_seller(other_seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_name="Свой", price=2, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="own-1", catalog_hash="own-h1",
+    )
+
+    assert result.created_count == 1
+    assert SellerProductRepository(committing_session).find_by_id(other_id).seller_name == "Чужой"
+
+
+def test_sku_wins_over_seller_product_id_when_both_present(committing_session):
+    # Книга может нести устаревший SellerProductId от прошлой жизни строки —
+    # артикул продавца главнее, иначе правка ушла бы не в тот товар.
+    seller_id = insert_seller(committing_session, name="Ферма артикул приоритет")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(
+            seller_id,
+            [
+                make_product(seller_name="По артикулу", price=10, seller_sku="PROD-1001"),
+                make_product(seller_name="Посторонний", price=20, seller_sku="PROD-2002"),
+            ],
+        ),
+        published_by=user_id, publication_key="prio-1", catalog_hash="prio-h1",
+    )
+    by_sku = {row.seller_sku: row.id for row in SellerProductRepository(committing_session).list_by_seller(seller_id)}
+
+    service.publish(
+        make_model(
+            seller_id,
+            [
+                make_product(
+                    seller_product_id=by_sku["PROD-2002"], seller_name="Правка", price=99, seller_sku="PROD-1001"
+                ),
+                make_product(seller_name="Посторонний", price=20, seller_sku="PROD-2002"),
+            ],
+        ),
+        published_by=user_id, publication_key="prio-2", catalog_hash="prio-h2",
+    )
+
+    assert SellerProductRepository(committing_session).find_by_id(by_sku["PROD-1001"]).seller_name == "Правка"
+    assert SellerProductRepository(committing_session).find_by_id(by_sku["PROD-2002"]).seller_name == "Посторонний"
+
+
+def test_book_without_sku_still_matches_by_seller_product_id(committing_session):
+    # Книги шаблонов 2.1/2.2 колонки артикула не имеют — они обязаны
+    # публиковаться ровно как раньше.
+    seller_id = insert_seller(committing_session, name="Ферма без артикула")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Старая книга", price=10)]),
+        published_by=user_id, publication_key="old-1", catalog_hash="old-h1",
+    )
+    existing_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_product_id=existing_id, seller_name="Старая книга", price=77)]),
+        published_by=user_id, publication_key="old-2", catalog_hash="old-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 1, 0)
+
+
+def test_row_with_id_adopts_newly_added_sku_instead_of_duplicating(committing_session):
+    # Переходный случай: у книги появилась колонка артикула, а строки ещё
+    # несут SellerProductId. Без этого правила публикация завела бы дубль
+    # каждому товару и погасила бы оригиналы.
+    seller_id = insert_seller(committing_session, name="Ферма переход на артикул")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Морковь", price=50)]),
+        published_by=user_id, publication_key="adopt-1", catalog_hash="adopt-h1",
+    )
+    existing_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(
+            seller_id,
+            [make_product(seller_product_id=existing_id, seller_name="Морковь", price=50, seller_sku="PROD-1001")],
+        ),
+        published_by=user_id, publication_key="adopt-2", catalog_hash="adopt-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 1, 0)
+    rows = SellerProductRepository(committing_session).list_by_seller(seller_id)
+    assert [(row.id, row.seller_sku) for row in rows] == [(existing_id, "PROD-1001")]
+
+
+def test_book_without_sku_column_does_not_wipe_stored_sku(committing_session):
+    # У книги шаблона 2.2 колонки артикула нет физически. Пустое значение
+    # обязано означать «книга про артикул ничего не сказала», а не «удалить».
+    seller_id = insert_seller(committing_session, name="Ферма артикул сохраняется")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Морковь", price=50, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="keep-1", catalog_hash="keep-h1",
+    )
+    existing_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(seller_id, [make_product(seller_product_id=existing_id, seller_name="Морковь", price=50)]),
+        published_by=user_id, publication_key="keep-2", catalog_hash="keep-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (0, 0, 0)
+    assert SellerProductRepository(committing_session).find_by_id(existing_id).seller_sku == "PROD-1001"
+
+
+def test_article_freed_by_one_row_is_not_matched_to_it_again(committing_session):
+    # Продавец сменил артикул существующей строки (книга ещё несёт её
+    # SellerProductId) и отдал освободившийся артикул новому товару. Если
+    # индекс сопоставления не обновить вместе со строкой, второй товар
+    # «найдётся» в первой строке, перезапишет её — и один товар пропадёт.
+    seller_id = insert_seller(committing_session, name="Ферма освобождённый артикул")
+    user_id = insert_user(committing_session, name="Admin")
+    service = make_service(committing_session)
+
+    service.publish(
+        make_model(seller_id, [make_product(seller_name="Старый", price=10, seller_sku="PROD-1001")]),
+        published_by=user_id, publication_key="free-1", catalog_hash="free-h1",
+    )
+    existing_id = SellerProductRepository(committing_session).list_by_seller(seller_id)[0].id
+
+    result = service.publish(
+        make_model(
+            seller_id,
+            [
+                make_product(
+                    seller_product_id=existing_id, seller_name="Старый", price=10, seller_sku="PROD-2002"
+                ),
+                make_product(seller_name="Новый", price=20, seller_sku="PROD-1001"),
+            ],
+        ),
+        published_by=user_id, publication_key="free-2", catalog_hash="free-h2",
+    )
+
+    assert (result.created_count, result.updated_count, result.deactivated_count) == (1, 1, 0)
+    rows = {row.seller_sku: row.seller_name for row in SellerProductRepository(committing_session).list_by_seller(seller_id)}
+    assert rows == {"PROD-2002": "Старый", "PROD-1001": "Новый"}

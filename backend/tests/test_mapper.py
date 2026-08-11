@@ -30,6 +30,8 @@ SYSTEM_ROWS = [
 
 CATALOG_HEADER_V22 = CATALOG_HEADER + ["Страна происхождения", "Дата поставки"]
 
+CATALOG_HEADER_V23 = CATALOG_HEADER_V22 + ["Артикул продавца"]
+
 
 def make_workbook(
     catalog_rows: list[list[object]],
@@ -77,6 +79,53 @@ def test_maps_origin_country_and_supply_date():
 
     assert product.origin_country == "Россия"
     assert product.supply_date == date(2026, 8, 1)
+
+
+def test_maps_seller_sku():
+    workbook = make_workbook(
+        [[None, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5", "Россия", None, "PROD-1001"]],
+        header=CATALOG_HEADER_V23,
+    )
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.seller_sku == "PROD-1001"
+
+
+def test_numeric_seller_sku_maps_to_string():
+    # Артикул вида 1001 Sheets отдаёт числом — сопоставление идёт по строке,
+    # иначе «1001» из одной книги и 1001 из другой окажутся разными ключами.
+    workbook = make_workbook(
+        [[None, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5", None, None, 1001]],
+        header=CATALOG_HEADER_V23,
+    )
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.seller_sku == "1001"
+
+
+def test_blank_seller_sku_maps_to_none():
+    workbook = make_workbook(
+        [[None, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5", None, None, ""]],
+        header=CATALOG_HEADER_V23,
+    )
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.seller_sku is None
+
+
+def test_book_without_seller_sku_column_maps_to_none():
+    """Книга шаблона 2.2 короче на колонку артикула — публикуется по-прежнему."""
+    workbook = make_workbook(
+        [[1, "Ферма Иванова", "Овощи", "Морковь", 99.5, "кг", 10, None, None, "5", "Россия", None]],
+        header=CATALOG_HEADER_V22,
+    )
+
+    product = Mapper().map(workbook, VALID_RESULT, seller_id=42).products[0]
+
+    assert product.seller_sku is None
 
 
 def test_row_of_old_book_without_new_columns_maps_to_none():

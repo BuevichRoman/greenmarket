@@ -94,6 +94,7 @@ class SellerProduct(Base):
     description: Mapped[str | None] = mapped_column(Text)
     origin_country: Mapped[str | None] = mapped_column(String(100))
     supply_date: Mapped[date | None] = mapped_column(Date)
+    seller_sku: Mapped[str | None] = mapped_column(String(64))
     is_published: Mapped[bool] = mapped_column(Boolean)
     moderation_status: Mapped[str] = mapped_column(String(30))
     moderator_id: Mapped[int | None] = mapped_column(Integer)

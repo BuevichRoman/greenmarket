@@ -78,9 +78,11 @@ Photo
 
 **Назначение:** предложение конкретного продавца. Основная рабочая таблица подсистемы — `id` этой таблицы одновременно является `SellerProductId`, постоянным техническим идентификатором позиции в рабочем каталоге продавца (см. [Catalog_Template.md](../02-domain/Catalog_Template.md)).
 
-**Основные поля:** `id`, `seller_id`, `product_id` (NULL допускается до модерации), `seller_name`, `unit`, `price`, `stock`, `description`, `origin_country`, `supply_date`, `is_published`, `moderation_status`, `moderator_id`, `moderated_at`, `moderation_comment`, `created_at`, `updated_at`.
+**Основные поля:** `id`, `seller_id`, `product_id` (NULL допускается до модерации), `seller_name`, `unit`, `price`, `stock`, `description`, `origin_country`, `supply_date`, `seller_sku`, `is_published`, `moderation_status`, `moderator_id`, `moderated_at`, `moderation_comment`, `created_at`, `updated_at`.
 
 **`origin_country` и `supply_date`** (миграция 016) — страна происхождения и дата завоза партии, как их указал продавец. Оба поля принадлежат предложению, а не товарной позиции: один и тот же товар у разных продавцов приезжает из разных стран и разной свежести. Оба допускают NULL — соответствующие колонки книги продавца необязательны и появились только в `TemplateVersion 2.2`. `origin_country` — свободная строка, а не FK: справочника стран в системе нет.
+
+**`seller_sku`** (миграция 018) — артикул товара в учётной системе продавца, ключ сопоставления строки книги с товаром при публикации. `UNIQUE (seller_id, seller_sku)`: артикул уникален внутри каталога одного продавца, у разных продавцов один и тот же код означает разные товары. NULL допускается и не мешает индексу (MySQL не считает NULL равными) — колонка «Артикул продавца» появилась только в `TemplateVersion 2.3`, книги 2.1/2.2 её не содержат. Введён потому, что `SellerProductId` присваивает сервер, а вернуть его в книгу нечем, и без ключа из книги каждая публикация пересоздавала каталог целиком (см. [Catalog_Template.md](../02-domain/Catalog_Template.md), «Артикул продавца»).
 
 **Значения `moderation_status`:** `WAIT_PRODUCT` (товар без связи с Product, ожидает модерации), `IN_PROGRESS` (модерация начата), `RESOLVED` (модерация завершена).
 

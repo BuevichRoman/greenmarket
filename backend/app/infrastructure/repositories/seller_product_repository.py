@@ -78,6 +78,7 @@ class SellerProductRepository:
         is_published: bool,
         origin_country: str | None = None,
         supply_date: date | None = None,
+        seller_sku: str | None = None,
     ) -> SellerProduct:
         now = datetime.now(timezone.utc)
         seller_product = SellerProduct(
@@ -90,6 +91,7 @@ class SellerProductRepository:
             description=description,
             origin_country=origin_country,
             supply_date=supply_date,
+            seller_sku=seller_sku,
             is_published=is_published,
             moderation_status=moderation_status_for(product_id),
             created_at=now,
