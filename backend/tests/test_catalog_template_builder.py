@@ -134,7 +134,7 @@ def test_build_workbook_is_deterministic():
 
 
 def test_build_workbook_accepts_prefilled_catalog_rows():
-    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "1", "Марокко", "01.08.2026"]
+    row = [None, "Апельсины оптом", "Цитрусовые", "Апельсин", 99.5, "кг", 10, "", "", "1", "Марокко", "01.08.2026", "PROD-1001"]
     wb = build_workbook(catalog_rows=[row])
     assert _sheet_values(wb[CATALOG_SHEET])[1] == row
 

@@ -20,6 +20,7 @@ _COL_ATTRIBUTES = _COLUMN_INDEX["Дополнительные характери
 _COL_PHOTOS = _COLUMN_INDEX["Фото"]
 _COL_ORIGIN_COUNTRY = _COLUMN_INDEX["Страна происхождения"]
 _COL_SUPPLY_DATE = _COLUMN_INDEX["Дата поставки"]
+_COL_SELLER_SKU = _COLUMN_INDEX["Артикул продавца"]
 
 
 def _cell(row: list[object], index: int) -> object:
@@ -83,6 +84,7 @@ class Mapper:
                 # строка короче ожидаемой здесь не ошибка (см. StructureValidator).
                 origin_country=_to_str_or_none(_blank_to_none(_cell(row, _COL_ORIGIN_COUNTRY))),
                 supply_date=parse_supply_date(_cell(row, _COL_SUPPLY_DATE)),
+                seller_sku=_to_str_or_none(_blank_to_none(_cell(row, _COL_SELLER_SKU))),
             )
         except (TypeError, ValueError) as exc:
             # Workbook уже должен быть провалидирован — сюда попадает только

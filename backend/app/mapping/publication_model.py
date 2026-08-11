@@ -18,6 +18,10 @@ class PublicationProduct:
     # здесь — штатное значение, а не «продавец забыл заполнить».
     origin_country: str | None = None
     supply_date: date | None = None
+    # Шаблон 2.3. Артикул продавца — ключ сопоставления строки книги с товаром.
+    # Строка, а не число: Sheets отдаёт «1001» числом, а «PROD-1001» строкой,
+    # и ключ обязан быть одного типа независимо от того, что ввёл продавец.
+    seller_sku: str | None = None
 
 
 @dataclass(frozen=True)

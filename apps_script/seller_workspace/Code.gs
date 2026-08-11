@@ -32,6 +32,7 @@ var COLUMN_ORDER = [
   'Фото',
   'Страна происхождения',
   'Дата поставки',
+  'Артикул продавца',
 ];
 
 function onOpen() {
@@ -169,7 +170,10 @@ function columnCount(sheet) {
 
 function saveRow(rowIndex, formData) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CATALOG_SHEET_NAME);
-  var existingSellerProductId = rowIndex <= sheet.getLastRow() ? sheet.getRange(rowIndex, 1).getValue() : '';
+  var rowExists = rowIndex <= sheet.getLastRow();
+  var existingSellerProductId = rowExists ? sheet.getRange(rowIndex, 1).getValue() : '';
+  var skuColumn = COLUMN_ORDER.indexOf('Артикул продавца') + 1;
+  var existingSellerSku = rowExists && skuColumn <= columnCount(sheet) ? sheet.getRange(rowIndex, skuColumn).getValue() : '';
 
   var values = [
     existingSellerProductId, // Карточка никогда не пишет SellerProductId сама — служебное поле сервера.
@@ -188,6 +192,10 @@ function saveRow(rowIndex, formData) {
     // разбирает (backend/app/parsing/cell_values.py). Непарсящееся значение
     // сохраняем как есть — ошибку про формат покажет публикация.
     parseIsoDateOrKeep(formData.supplyDate),
+    // Артикул — ключ, по которому публикация узнаёт строку. Пустой не
+    // затирает уже записанный: иначе сохранение карточки со старой книги
+    // отвязало бы товар от его строки в базе.
+    formData.sellerSku || existingSellerSku,
   ];
 
   // В книге шаблона 2.1 двух последних колонок физически нет. Записать их

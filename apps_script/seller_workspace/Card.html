@@ -64,6 +64,10 @@
     <input type="date" id="supplyDate">
     <div class="hint">Когда партия завезена — покупатель видит по ней свежесть товара. Дата не может быть в будущем.</div>
 
+    <label>Артикул продавца</label>
+    <input type="text" id="sellerSku" maxlength="64" placeholder="Например: PROD-1001">
+    <div class="hint">Ваш код товара, уникальный внутри каталога. По нему товар узнаётся при повторной публикации — не меняйте его потом. Покупателю не показывается.</div>
+
     <label>Фото</label>
     <div class="photos" id="photos"></div>
     <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="margin-top: 8px;">
@@ -132,6 +136,7 @@
       document.getElementById('originCountry').value = f['Страна происхождения'] || '';
       // Code.gs уже привёл значение ячейки к «ГГГГ-ММ-ДД» — формату input[type=date].
       document.getElementById('supplyDate').value = f['Дата поставки'] || '';
+      document.getElementById('sellerSku').value = f['Артикул продавца'] || '';
 
       populateSelectWithFallback(document.getElementById('productGroup'), data.groups, f['Товарная группа GreenMarket']);
       populateSelectWithFallback(document.getElementById('productName'), data.products, f['Товарная позиция GreenMarket']);
@@ -207,6 +212,7 @@
         attributes: document.getElementById('attributes').value,
         originCountry: document.getElementById('originCountry').value,
         supplyDate: document.getElementById('supplyDate').value,
+        sellerSku: document.getElementById('sellerSku').value.trim(),
         photoIds: photoIds,
       };
       setStatus('Сохранение…');

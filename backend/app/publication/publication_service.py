@@ -126,7 +126,9 @@ class PublicationService:
             raise
 
     def _apply_catalog(self, products: list[PublicationProduct], seller_id: int) -> tuple[int, int, int]:
-        existing_by_id = {sp.id: sp for sp in self.seller_product_repository.list_by_seller(seller_id)}
+        existing_rows = self.seller_product_repository.list_by_seller(seller_id)
+        existing_by_id = {sp.id: sp for sp in existing_rows}
+        existing_by_sku = {sp.seller_sku: sp for sp in existing_rows if sp.seller_sku}
         # N+1 сознательно — размер каталога продавца на Stage 1 мал, не
         # оптимизируем заранее (YAGNI).
         existing_photo_ids_by_id = {
@@ -138,7 +140,9 @@ class PublicationService:
         for item in products:
             product_id = self._resolve_product_id(item)
 
-            if item.seller_product_id is None:
+            existing = self._match_existing(item, existing_by_id, existing_by_sku, seller_id)
+
+            if existing is None:
                 seller_product = self.seller_product_repository.create(
                     seller_id=seller_id,
                     product_id=product_id,
@@ -149,17 +153,14 @@ class PublicationService:
                     description=item.description,
                     origin_country=item.origin_country,
                     supply_date=item.supply_date,
+                    seller_sku=item.seller_sku,
                     is_published=bool(item.photo_ids),
                 )
                 self.seller_product_photo_repository.replace_for_product(seller_product.id, item.photo_ids)
+                if item.seller_sku is not None:
+                    existing_by_sku[item.seller_sku] = seller_product
                 created += 1
                 continue
-
-            existing = existing_by_id.get(item.seller_product_id)
-            if existing is None or existing.seller_id != seller_id:
-                raise PublicationConflictError(
-                    f"SellerProductId {item.seller_product_id} не найден среди товаров продавца {seller_id}"
-                )
 
             seen_ids.add(existing.id)
             photos_changed = existing_photo_ids_by_id.get(existing.id, []) != item.photo_ids
@@ -183,6 +184,17 @@ class PublicationService:
                 existing.description = item.description
                 existing.origin_country = item.origin_country
                 existing.supply_date = item.supply_date
+                # Пустой артикул не стирает сохранённый: у книг шаблонов 2.1/2.2
+                # колонки нет физически, и публикация такой книги не должна
+                # обнулять ключ, проставленный переносом или книгой 2.3.
+                if item.seller_sku is not None and existing.seller_sku != item.seller_sku:
+                    # Индекс ведётся вместе со строкой, иначе он разошёлся бы с
+                    # состоянием внутри одной публикации: продавец, поменявший
+                    # артикулы у двух строк местами, получил бы совпадение по
+                    # уже занятому ключу.
+                    existing_by_sku.pop(existing.seller_sku, None)
+                    existing.seller_sku = item.seller_sku
+                    existing_by_sku[item.seller_sku] = existing
                 # Товар без фото сохраняется, но покупателю не показывается —
                 # каталог обязан быть с картинками (Catalog_Template.md).
                 existing.is_published = bool(item.photo_ids)
@@ -196,6 +208,43 @@ class PublicationService:
                 deactivated += 1
 
         return created, updated, deactivated
+
+    def _match_existing(
+        self,
+        item: PublicationProduct,
+        existing_by_id: dict[int, SellerProduct],
+        existing_by_sku: dict[str, SellerProduct],
+        seller_id: int,
+    ) -> SellerProduct | None:
+        """Какому существующему товару соответствует строка книги.
+
+        Артикул продавца главнее SellerProductId: он принадлежит продавцу и
+        живёт в книге, тогда как SellerProductId сервер выдаёт, а доставить в
+        книгу не может (kwork/defect_publication_recreates_rows.md) — из-за
+        этого разрыва публикация и пересоздавала каталог целиком.
+
+        Незнакомый артикул — это новый товар, а не ошибка: артикул выдаёт
+        продавец. Незнакомый SellerProductId, наоборот, ошибка: его выдал
+        сервер, и если его нет среди товаров продавца, книга ссылается на
+        чужую или несуществующую строку.
+        """
+        if item.seller_sku is not None:
+            existing = existing_by_sku.get(item.seller_sku)
+            if existing is not None:
+                return existing
+            # Артикул ещё не знаком, но строка несёт SellerProductId — значит
+            # это существующий товар, которому продавец только что добавил
+            # артикул. Принимаем ключ на него, а не заводим дубль.
+
+        if item.seller_product_id is None:
+            return None
+
+        existing = existing_by_id.get(item.seller_product_id)
+        if existing is None or existing.seller_id != seller_id:
+            raise PublicationConflictError(
+                f"SellerProductId {item.seller_product_id} не найден среди товаров продавца {seller_id}"
+            )
+        return existing
 
     def _resolve_product_id(self, item: PublicationProduct) -> int | None:
         if item.product_name is None or item.product_name == _OTHER_PRODUCT_PLACEHOLDER:
@@ -219,4 +268,8 @@ class PublicationService:
             or existing.description != item.description
             or existing.origin_country != item.origin_country
             or existing.supply_date != item.supply_date
+            # Только появление или смена артикула — исчезновение колонки из
+            # книги изменением не считается, иначе публикация книги 2.2
+            # объявляла бы изменённой каждую строку.
+            or (item.seller_sku is not None and existing.seller_sku != item.seller_sku)
         )
