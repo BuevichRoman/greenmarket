@@ -6,11 +6,12 @@
 // Состав полей дублирует backend/app/profile/fields.py (PROFILE_FIELDS) — источник
 // правды там. Stage 2 добавит фото, логотип и соцсети (Seller_Profile.md, раздел 4):
 // новое поле придётся завести и здесь, и в ProfileForm.html.
-var PROFILE_FIELDS = ['phone', 'whatsapp', 'row', 'place', 'working_hours', 'short_description'];
+var PROFILE_FIELDS = ['phone', 'whatsapp', 'market_id', 'row', 'place', 'working_hours', 'short_description'];
 
 var PROFILE_FIELD_LABELS = {
   phone: 'телефон',
   whatsapp: 'WhatsApp',
+  market_id: 'место торговли',
   row: 'ряд',
   place: 'место',
   working_hours: 'часы работы',
@@ -38,14 +39,27 @@ function requireAccessToken_() {
   return token;
 }
 
-// Ответ отдаётся форме как есть: {seller_id, name, status, row, place, working_hours,
-// short_description, phone, whatsapp, suggested_phone}.
+// Профиль и справочник мест торговли одним вызовом: диалогу нужно и то, и
+// другое, чтобы отрисовать выпадающий список с уже выбранным значением, а два
+// последовательных google.script.run показали бы форму дважды недособранной.
+//
+// profile — ответ Seller API как есть: {seller_id, name, status, market_id, row,
+// place, working_hours, short_description, phone, whatsapp, suggested_phone}.
+// markets — только открытые точки: {id, name, type, address}.
 function getProfileData() {
   var accessToken = requireAccessToken_();
 
-  var url = API_BASE_URL + '/seller/profile?access_token=' + encodeURIComponent(accessToken);
-  var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
-  return handleApiResponse(response, 200);
+  var profileUrl = API_BASE_URL + '/seller/profile?access_token=' + encodeURIComponent(accessToken);
+  var profile = handleApiResponse(
+    UrlFetchApp.fetch(profileUrl, { method: 'get', muteHttpExceptions: true }), 200
+  );
+
+  var marketsUrl = API_BASE_URL + '/seller/markets?access_token=' + encodeURIComponent(accessToken);
+  var markets = handleApiResponse(
+    UrlFetchApp.fetch(marketsUrl, { method: 'get', muteHttpExceptions: true }), 200
+  ).markets;
+
+  return { profile: profile, markets: markets };
 }
 
 // changedFields — только реально изменённые поля (diff считает ProfileForm.html). PUT
