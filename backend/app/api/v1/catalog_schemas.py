@@ -108,6 +108,35 @@ class SellerCardResponse(BaseModel):
     whatsapp: str | None
 
 
+class SellerCatalogItem(BaseModel):
+    """Предложение в каталоге одного продавца. Имён два: `name` — собственное
+    наименование продавца, `catalog_name` — эталонное имя товарной позиции.
+    Поле `seller_name` здесь сознательно не используется: в `SellerOfferItem`
+    оно означает имя продавца, и второй смысл у того же имени в одном API —
+    источник ошибок."""
+
+    seller_product_id: int
+    product_id: int
+    name: str
+    catalog_name: str
+    group_id: int
+    group_name: str
+    price: Decimal
+    unit: str
+    stock: Decimal
+    description: str | None
+    origin_country: str | None
+    supply_date: date | None
+    photos: list[str]
+
+
+class SellerCatalogResponse(BaseModel):
+    products: list[SellerCatalogItem]
+    page: int
+    limit: int
+    total: int
+
+
 class ProductDetailResponse(BaseModel):
     id: int
     name: str

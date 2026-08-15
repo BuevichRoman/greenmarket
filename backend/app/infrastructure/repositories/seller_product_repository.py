@@ -1,8 +1,9 @@
 from datetime import date, datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.infrastructure.models import SellerProduct
+from app.infrastructure.models import Product, SellerProduct
 
 
 def moderation_status_for(product_id: int | None) -> str:
@@ -51,6 +52,35 @@ class SellerProductRepository:
             .all()
         )
         return items, total
+
+    def list_visible_for_seller(
+        self, seller_id: int, *, group_id: int | None = None, search: str | None = None, sort: str = "name"
+    ) -> list[SellerProduct]:
+        """Каталог одного продавца для покупателя (REST_API.md,
+        `GET /catalog/sellers/{id}/products`).
+
+        Видимость та же, что в общем каталоге: опубликованное предложение
+        промодерированной и не снятой из справочника позиции. Поиск, в отличие
+        от общего каталога, идёт по обоим именам — внутри каталога продавца
+        покупатель ищет то, что видит на экране, включая собственное
+        наименование продавца.
+        """
+        query = (
+            self.session.query(SellerProduct)
+            .join(Product, Product.id == SellerProduct.product_id)
+            .filter(
+                SellerProduct.seller_id == seller_id,
+                SellerProduct.is_published.is_(True),
+                Product.is_active.is_(True),
+            )
+        )
+        if group_id is not None:
+            query = query.filter(Product.product_group_id == group_id)
+        if search:
+            pattern = f"%{search}%"
+            query = query.filter(or_(SellerProduct.seller_name.ilike(pattern), Product.name.ilike(pattern)))
+        order = SellerProduct.price if sort == "price" else SellerProduct.seller_name
+        return query.order_by(order, SellerProduct.id).all()
 
     def list_published_for_products(self, product_ids: list[int]) -> list[SellerProduct]:
         if not product_ids:
