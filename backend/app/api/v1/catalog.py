@@ -16,6 +16,8 @@ from app.api.v1.catalog_schemas import (
     ProductListItem,
     ProductListResponse,
     SellerCardResponse,
+    SellerCatalogItem,
+    SellerCatalogResponse,
     SellerOfferItem,
 )
 from app.api.v1.schemas import error_response
@@ -97,3 +99,28 @@ def get_seller_card(seller_id: int, session: Session = Depends(get_session)) -> 
     if card is None:
         return _not_found(f"Продавец {seller_id} не найден или недоступен")
     return SellerCardResponse(**card)
+
+
+@router.get("/sellers/{seller_id}/products", response_model=SellerCatalogResponse)
+def list_seller_products(
+    seller_id: int,
+    group_id: int | None = None,
+    search: str | None = None,
+    sort: Literal["name", "price"] = "name",
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> SellerCatalogResponse | JSONResponse:
+    """Каталог одного продавца — экран «товары выбранного продавца»."""
+    result = CatalogUseCase(session).list_seller_products(
+        seller_id, group_id=group_id, search=search, sort=sort, page=page, limit=limit
+    )
+    if result is None:
+        return _not_found(f"Продавец {seller_id} не найден или недоступен")
+    items, total = result
+    return SellerCatalogResponse(
+        products=[SellerCatalogItem(**item) for item in items],
+        page=page,
+        limit=limit,
+        total=total,
+    )

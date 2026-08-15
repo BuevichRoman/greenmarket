@@ -243,6 +243,60 @@ class CatalogUseCase:
         market_id = profile.pop("market_id")
         return {"seller_id": row.seller_id, "name": row.name, "market": self._market(market_id), **profile}
 
+    def list_seller_products(
+        self,
+        seller_id: int,
+        *,
+        group_id: int | None = None,
+        search: str | None = None,
+        sort: str = "name",
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[dict], int] | None:
+        """Каталог одного продавца (REST_API.md, Catalog API).
+
+        `None` — продавца нет или он деактивирован: то же 404, что у карточки
+        продавца. Видимый продавец без единого видимого предложения — пустой
+        список, а не `None`: он существует, показывать нечего.
+
+        Единица выдачи — предложение продавца, а не товарная позиция: имя,
+        цена и остаток здесь его собственные, поэтому группировать по Product,
+        как в общем каталоге, нечего.
+        """
+        row = self.seller_gateway.find_list_row(seller_id)
+        if row is None or not row.is_active:
+            return None
+
+        offers = self.seller_product_repository.list_visible_for_seller(
+            seller_id, group_id=group_id, search=search, sort=sort
+        )
+        total = len(offers)
+        page_items = offers[(page - 1) * limit : (page - 1) * limit + limit]
+        photos_by_seller_product = self.photo_gateway.list_by_seller_products([offer.id for offer in page_items])
+
+        items = [
+            {
+                "seller_product_id": offer.id,
+                "product_id": offer.product_id,
+                # Своё наименование основным, эталонное рядом: каталог продавца
+                # показывает его товар его словами, но переход на общую карточку
+                # товара ведёт по справочной позиции.
+                "name": offer.seller_name,
+                "catalog_name": offer.product.name,
+                "group_id": offer.product.product_group_id,
+                "group_name": offer.product.group.name,
+                "price": offer.price,
+                "unit": offer.unit,
+                "stock": offer.stock,
+                "description": offer.description,
+                "origin_country": offer.origin_country,
+                "supply_date": offer.supply_date,
+                "photos": _photo_urls(photos_by_seller_product.get(offer.id, [])),
+            }
+            for offer in page_items
+        ]
+        return items, total
+
     def _market(self, market_id: str | None) -> dict | None:
         if market_id is None or not market_id.isdigit():
             return None
