@@ -11,8 +11,16 @@ class ProductRepository:
     def find_by_id(self, product_id: int) -> Product | None:
         return self.session.get(Product, product_id)
 
-    def find_by_name(self, name: str) -> Product | None:
-        return self.session.query(Product).filter(Product.name == name).first()
+    def find_by_name(self, name: str, *, exclude_id: int | None = None) -> Product | None:
+        """Тёзка по наименованию. Сравнение отдаётся collation таблицы
+        (`utf8mb4_0900_ai_ci`, регистронезависимая) — тем же правилом, по
+        которому уникальность проверяет индекс `uk_Product_name` (миграция 019).
+        `exclude_id` нужен правке: позиция не является тёзкой самой себе.
+        """
+        query = self.session.query(Product).filter(Product.name == name)
+        if exclude_id is not None:
+            query = query.filter(Product.id != exclude_id)
+        return query.first()
 
     def list_by_group(self, product_group_id: int) -> list[Product]:
         return (

@@ -34,6 +34,9 @@ def insert_group(session, *, name: str) -> int:
 
 
 def insert_product(session, *, group_id: int, name: str) -> int:
+    """Наименование должно быть заведомо тестовым: `Product.name` уникален по
+    всему справочнику (`uk_Product_name`, миграция 019), а тесты идут по рабочей
+    схеме с боевым слепком каталога — «Яблоко» или «Мёд» там уже заняты."""
     return session.execute(
         text("INSERT INTO Product (product_group_id, name) VALUES (:group_id, :name)"),
         {"group_id": group_id, "name": name},
@@ -93,7 +96,7 @@ def test_returns_both_names_of_the_offer(committing_session):
         committing_session,
         seller_id=seller_id,
         seller_name="Мёд гречишный, урожай 2026",
-        catalog_name="Мёд",
+        catalog_name="Мёд эталонный",
     )
 
     response = get_products(committing_session, seller_id)
@@ -103,8 +106,8 @@ def test_returns_both_names_of_the_offer(committing_session):
     assert [p["seller_product_id"] for p in body["products"]] == [offer_id]
     product = body["products"][0]
     assert product["name"] == "Мёд гречишный, урожай 2026"
-    assert product["catalog_name"] == "Мёд"
-    assert product["group_name"] == "Группа Мёд"
+    assert product["catalog_name"] == "Мёд эталонный"
+    assert product["group_name"] == "Группа Мёд эталонный"
     assert (product["price"], product["unit"], product["stock"]) == ("100.00", "кг", "5.000")
     assert product["description"] == "Своё описание"
     assert (product["origin_country"], product["supply_date"]) == ("Россия", "2026-08-01")
@@ -135,7 +138,7 @@ def test_hides_unpublished_offer(committing_session):
         committing_session,
         seller_id=seller_id,
         seller_name="Товар без фото",
-        catalog_name="Огурец",
+        catalog_name="Огурец эталонный",
         is_published=False,
     )
 
@@ -163,8 +166,8 @@ def test_hides_offer_of_deactivated_catalog_position(committing_session):
 def test_does_not_leak_offers_of_other_sellers(committing_session):
     mine = insert_seller(committing_session, name="Мой продавец")
     other = insert_seller(committing_session, name="Чужой продавец")
-    visible_offer(committing_session, seller_id=mine, seller_name="Мой товар", catalog_name="Яблоко")
-    visible_offer(committing_session, seller_id=other, seller_name="Чужой товар", catalog_name="Груша")
+    visible_offer(committing_session, seller_id=mine, seller_name="Мой товар", catalog_name="Яблоко эталонное")
+    visible_offer(committing_session, seller_id=other, seller_name="Чужой товар", catalog_name="Груша эталонная")
 
     response = get_products(committing_session, mine)
 
@@ -183,7 +186,7 @@ def test_visible_seller_without_offers_returns_empty_list(committing_session):
 
 def test_deactivated_seller_reports_404(committing_session):
     seller_id = insert_seller(committing_session, name="Выключенный продавец", is_active=False)
-    visible_offer(committing_session, seller_id=seller_id, seller_name="Скрытый товар", catalog_name="Молоко")
+    visible_offer(committing_session, seller_id=seller_id, seller_name="Скрытый товар", catalog_name="Молоко эталонное")
 
     response = get_products(committing_session, seller_id)
 
@@ -206,9 +209,9 @@ def test_search_matches_sellers_own_name(committing_session):
         committing_session,
         seller_id=seller_id,
         seller_name="Антоновка бабушкина",
-        catalog_name="Яблоко",
+        catalog_name="Яблоко эталонное",
     )
-    visible_offer(committing_session, seller_id=seller_id, seller_name="Огурец длинный", catalog_name="Огурец")
+    visible_offer(committing_session, seller_id=seller_id, seller_name="Огурец длинный", catalog_name="Огурец эталонный")
 
     response = get_products(committing_session, seller_id, "?search=Антоновка")
 
@@ -221,9 +224,9 @@ def test_search_matches_catalog_name(committing_session):
         committing_session,
         seller_id=seller_id,
         seller_name="Антоновка бабушкина",
-        catalog_name="Яблоко",
+        catalog_name="Яблоко эталонное",
     )
-    visible_offer(committing_session, seller_id=seller_id, seller_name="Огурец длинный", catalog_name="Огурец")
+    visible_offer(committing_session, seller_id=seller_id, seller_name="Огурец длинный", catalog_name="Огурец эталонный")
 
     response = get_products(committing_session, seller_id, "?search=Яблоко")
 
@@ -263,8 +266,8 @@ def test_sorts_by_price(committing_session):
 def test_sorts_by_sellers_own_name_by_default(committing_session):
     """Порядок по умолчанию — по тому полю, что показывается основным."""
     seller_id = insert_seller(committing_session, name="Продавец с алфавитом")
-    visible_offer(committing_session, seller_id=seller_id, seller_name="Яблоко своё", catalog_name="Абрикос")
-    visible_offer(committing_session, seller_id=seller_id, seller_name="Абрикос свой", catalog_name="Яблоко")
+    visible_offer(committing_session, seller_id=seller_id, seller_name="Яблоко своё", catalog_name="Абрикос эталонный")
+    visible_offer(committing_session, seller_id=seller_id, seller_name="Абрикос свой", catalog_name="Яблоко эталонное")
 
     response = get_products(committing_session, seller_id)
 

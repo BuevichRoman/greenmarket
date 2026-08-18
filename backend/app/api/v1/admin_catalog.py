@@ -33,6 +33,20 @@ def group_not_found(group_id: int) -> JSONResponse:
     return error_response(404, "PRODUCT_GROUP_NOT_FOUND", f"Товарная группа {group_id} не найдена")
 
 
+def product_name_taken(existing: Product) -> JSONResponse:
+    """Наименование уникально по всему справочнику, а не внутри группы:
+    покупателю группа на плитке не видна, и «Яблоки» из Фруктов неотличимы от
+    «Яблок» из Сухофруктов (Catalog_Model.md, раздел Product). В сообщении —
+    id и группа занявшей позиции: модератору нужно решить, привязываться к ней
+    или уточнить наименование, а не гадать, где тёзка."""
+    return error_response(
+        409,
+        "PRODUCT_NAME_ALREADY_EXISTS",
+        f"Наименование «{existing.name}» уже занято позицией {existing.id} "
+        f"(товарная группа {existing.product_group_id})",
+    )
+
+
 def _group_summary(group: ProductGroup, product_count: int) -> ProductGroupSummary:
     return ProductGroupSummary(
         id=group.id,
@@ -165,7 +179,12 @@ def create_product(
     if group is None:
         return group_not_found(request.product_group_id)
 
-    product = ProductRepository(session).create(
+    repository = ProductRepository(session)
+    duplicate = repository.find_by_name(request.name)
+    if duplicate is not None:
+        return product_name_taken(duplicate)
+
+    product = repository.create(
         product_group_id=request.product_group_id, name=request.name, description=request.description
     )
     session.commit()
@@ -188,6 +207,11 @@ def update_product(
     product = repository.find_by_id(product_id)
     if product is None:
         return error_response(404, "PRODUCT_NOT_FOUND", f"Товарная позиция {product_id} не найдена")
+
+    if request.name is not None:
+        duplicate = repository.find_by_name(request.name, exclude_id=product_id)
+        if duplicate is not None:
+            return product_name_taken(duplicate)
 
     group_repository = ProductGroupRepository(session)
     if request.product_group_id is not None:

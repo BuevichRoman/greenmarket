@@ -26,7 +26,7 @@
 ## Порядок применения
 
 ```text
-001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017
+001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017 → 018 → 019
 ```
 
 Изменение порядка выполнения не допускается.
@@ -64,6 +64,8 @@
 | `015_create_seller_profile_change.sql` | создание таблицы `SellerProfileChange` (журнал изменений полей профиля продавца; значения профиля хранятся в платформенном `users_prop`, где нет ни автора, ни времени — см. [Seller_Profile.md](../02-domain/Seller_Profile.md), §10a) |
 | `016_alter_seller_products_add_origin_supply.sql` | добавление `SellerProduct.origin_country` и `SellerProduct.supply_date` (страна происхождения и дата завоза партии, показываются покупателю в карточке товара; оба поля необязательны — колонки книги продавца появились в `TemplateVersion 2.2`, см. [Catalog_Template.md](../02-domain/Catalog_Template.md)) |
 | `017_create_market.sql` | создание таблицы `Market` (рынок: название, адрес, координаты; продавец ссылается на него профильным свойством `gm_seller_market_id` — см. [Seller_Profile.md](../02-domain/Seller_Profile.md), §3) |
+| `018_alter_seller_products_add_seller_sku.sql` | добавление `SellerProduct.seller_sku` с `UNIQUE (seller_id, seller_sku)` — артикул продавца как ключ сопоставления строки книги с товаром при публикации (см. [Physical_Model.md](Physical_Model.md), SellerProduct) |
+| `019_alter_products_unique_name.sql` | `UNIQUE (name)` для `Product` — одно наименование соответствует одной позиции справочника (см. [Catalog_Model.md](../02-domain/Catalog_Model.md), раздел Product). Требует предварительной чистки тёзок: миграция не применится, пока в таблице есть записи с одинаковым `name` |
 
 > **Примечание о нумерации.** Исходный план (Database_Migrations.md v1.0) содержал 001–006 и предполагал выполнение на пустой БД, где `Seller`, `User`, `Photo` — таблицы других доменных сервисов платформы, создаваемые отдельно. При первом реальном деплое на платформенную БД `aristotel_taxi` (сервер 104.171.133.95) выяснилось, что таких таблиц нет ни в одной среде. Решение: `Seller` — своя таблица GreenMarket (владелец Platform, ссылается на `aristotel_taxi.users`), `Photo` — своя временная таблица GreenMarket; `User` отдельной таблицей не заводится, соответствующие поля (`moderator_id`, `published_by`) ссылаются на `aristotel_taxi.users(id_user)` напрямую. Миграции 003–006 (исходная нумерация) сдвинуты на 005–008, добавлены новые 003 (`Seller`) и 004 (`Photo`).
 
