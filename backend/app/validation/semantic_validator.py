@@ -90,10 +90,12 @@ class SemanticValidator:
 
         product_name = _cell(row, _COL_PRODUCT)
         if product_name and product_name != _OTHER_PRODUCT_PLACEHOLDER and group is not None:
-            # UNIQUE(name) на Product сознательно не используется — идентификация
-            # выполняется комбинацией ProductGroup + Product (см.
-            # database/migrations/002_create_products.sql), поэтому товар ищем
-            # именно в пределах уже найденной группы, а не по имени глобально.
+            # Товар ищется в пределах уже найденной группы, а не по имени
+            # глобально: книга выбирает пару «группа + позиция», и позиция из
+            # чужой группы — ошибка выбора, а не опечатка в имени. Наименование
+            # при этом уникально по всему справочнику (uk_Product_name, миграция
+            # 019), поэтому найденная в группе позиция — единственная с таким
+            # именем во всей базе.
             products_in_group = {product.name for product in self.product_repository.list_by_group(group.id)}
             if product_name not in products_in_group:
                 errors.append(

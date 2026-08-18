@@ -359,3 +359,111 @@ def test_product_endpoints_require_admin_token(committing_session):
     assert committing_session.execute(
         text("SELECT COUNT(*) FROM Product WHERE name = 'Без токена'")
     ).scalar() == 0
+
+
+def test_create_product_rejects_duplicate_name(committing_session):
+    """Одно наименование — одна позиция справочника. Два Product с одним именем
+    неразличимы и для покупателя (две одинаковые плитки в каталоге), и для
+    модератора (две одинаковые строки в поиске по справочнику)."""
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ дублей")
+    group = create_group(client, headers, name="Группа дублей")
+    first = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Клюква тестовая"}, headers=headers
+    ).json()
+
+    response = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Клюква тестовая"}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "PRODUCT_NAME_ALREADY_EXISTS"
+    assert str(first["id"]) in response.json()["error"]["message"]
+
+
+def test_create_product_rejects_duplicate_name_from_another_group(committing_session):
+    """Уникальность имени глобальная, а не внутри группы: «Яблоки» во Фруктах и
+    «Яблоки» в Сухофруктах в каталоге выглядят одинаково — группа на плитке не
+    показывается (Catalog_Model.md: позиция создаётся один раз)."""
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ двух групп")
+    fruits = create_group(client, headers, name="Фрукты дублей")
+    dried = create_group(client, headers, name="Сухофрукты дублей")
+    client.post("/api/v1/admin/products", json={"product_group_id": fruits["id"], "name": "Хурма тестовая"}, headers=headers)
+
+    response = client.post(
+        "/api/v1/admin/products", json={"product_group_id": dried["id"], "name": "Хурма тестовая"}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "PRODUCT_NAME_ALREADY_EXISTS"
+
+
+def test_create_product_rejects_duplicate_name_in_different_case_and_spacing(committing_session):
+    """Регистр не создаёт новую позицию (collation utf8mb4_0900_ai_ci), а
+    краевые пробелы обрезаются: иначе «Черемша » обошла бы проверку, а
+    покупатель увидел бы две одинаковые плитки."""
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ регистра")
+    group = create_group(client, headers, name="Группа регистра")
+    client.post("/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Черемша тестовая"}, headers=headers)
+
+    other_case = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "ЧЕРЕМША ТЕСТОВАЯ"}, headers=headers
+    )
+    padded = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "  Черемша тестовая  "}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    assert other_case.status_code == 409
+    assert padded.status_code == 409
+
+
+def test_update_product_rejects_name_of_another_product(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ переименования")
+    group = create_group(client, headers, name="Группа переименования")
+    client.post("/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Занятое имя"}, headers=headers)
+    product = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Свободное имя"}, headers=headers
+    ).json()
+
+    response = client.put(
+        f"/api/v1/admin/products/{product['id']}", json={"name": "Занятое имя"}, headers=headers
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "PRODUCT_NAME_ALREADY_EXISTS"
+    assert committing_session.execute(
+        text("SELECT name FROM Product WHERE id = :id"), {"id": product["id"]}
+    ).scalar() == "Свободное имя"
+
+
+def test_update_product_allows_keeping_own_name(committing_session):
+    """Правка описания или группы не должна спотыкаться о собственное имя
+    позиции — проверка ищет тёзку, а не саму запись."""
+    override_session(committing_session)
+    client = TestClient(app)
+    headers = admin_headers(committing_session, client, name="Админ своего имени")
+    group = create_group(client, headers, name="Группа своего имени")
+    product = client.post(
+        "/api/v1/admin/products", json={"product_group_id": group["id"], "name": "Собственное имя"}, headers=headers
+    ).json()
+
+    response = client.put(
+        f"/api/v1/admin/products/{product['id']}",
+        json={"name": "Собственное имя", "description": "Уточнённое описание"},
+        headers=headers,
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["description"] == "Уточнённое описание"

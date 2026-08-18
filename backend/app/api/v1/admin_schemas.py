@@ -1,8 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+# Краевые пробелы срезаются до проверки длины и до проверки на тёзку: иначе
+# «Черемша » прошла бы как новое наименование, а в каталоге дала бы вторую
+# неотличимую плитку (уникальность имени — Catalog_Model.md, раздел Product).
+ProductName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
 
 
 class AdminActivationRequest(BaseModel):
@@ -127,7 +132,7 @@ class ProductListResponse(BaseModel):
 
 class ProductCreateRequest(BaseModel):
     product_group_id: int
-    name: str = Field(min_length=1, max_length=150)
+    name: ProductName
     description: str | None = None
 
 
@@ -244,6 +249,6 @@ class SellerProfileChangeFeedResponse(BaseModel):
 
 class ProductUpdateRequest(BaseModel):
     product_group_id: int | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=150)
+    name: ProductName | None = None
     description: str | None = None
     is_active: bool | None = None
