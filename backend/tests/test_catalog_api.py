@@ -7,8 +7,11 @@ from app.profile.fields import PROFILE_FIELDS
 from app.profile.seller_profile_service import SellerProfileService
 
 
-def insert_product_group(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+def insert_product_group(session, *, name: str, parent_id: int | None = None) -> int:
+    return session.execute(
+        text("INSERT INTO ProductGroup (name, parent_id) VALUES (:name, :parent_id)"),
+        {"name": name, "parent_id": parent_id},
+    ).lastrowid
 
 
 def override_session(committing_session):
@@ -342,3 +345,89 @@ def test_seller_card_is_public(committing_session):
     assert response.status_code == 200
     assert "security" not in operation
     assert [parameter["name"] for parameter in operation.get("parameters", [])] == ["seller_id"]
+
+
+def _publish(session, *, group_id: int, product_name: str, seller_name: str) -> int:
+    product_id = insert_product(session, group_id=group_id, name=product_name)
+    seller_id = insert_active_seller(session, name=seller_name)
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+    return product_id
+
+
+def test_get_products_accepts_comma_separated_group_ids(committing_session):
+    group_a = insert_product_group(committing_session, name="Группа A запятой")
+    group_b = insert_product_group(committing_session, name="Группа B запятой")
+    group_c = insert_product_group(committing_session, name="Группа C запятой")
+    product_a = _publish(committing_session, group_id=group_a, product_name="Товар A запятой", seller_name="Продавец A запятой")
+    product_b = _publish(committing_session, group_id=group_b, product_name="Товар B запятой", seller_name="Продавец B запятой")
+    product_c = _publish(committing_session, group_id=group_c, product_name="Товар C запятой", seller_name="Продавец C запятой")
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products?group_id={group_a},{group_b}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    ids = [i["id"] for i in response.json()["products"]]
+    assert product_a in ids
+    assert product_b in ids
+    assert product_c not in ids
+
+
+def test_get_products_accepts_repeated_group_id_parameter(committing_session):
+    """`group_id=12&group_id=17` — второй способ перечисления, который умеет
+    любой HTTP-клиент по умолчанию. Оба формата означают одно и то же."""
+    group_a = insert_product_group(committing_session, name="Группа A повтора")
+    group_b = insert_product_group(committing_session, name="Группа B повтора")
+    product_a = _publish(committing_session, group_id=group_a, product_name="Товар A повтора", seller_name="Продавец A повтора")
+    product_b = _publish(committing_session, group_id=group_b, product_name="Товар B повтора", seller_name="Продавец B повтора")
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products?group_id={group_a}&group_id={group_b}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    ids = [i["id"] for i in response.json()["products"]]
+    assert product_a in ids
+    assert product_b in ids
+
+
+def test_get_products_by_parent_group_returns_child_products(committing_session):
+    parent = insert_product_group(committing_session, name="Родитель роутера ветки")
+    child = insert_product_group(committing_session, name="Ребёнок роутера ветки", parent_id=parent)
+    child_product = _publish(
+        committing_session, group_id=child, product_name="Товар ребёнка роутера", seller_name="Продавец ветки роутера"
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/products?group_id={parent}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert child_product in [i["id"] for i in response.json()["products"]]
+
+
+def test_get_products_rejects_non_numeric_group_id(committing_session):
+    """Мусор в `group_id` — ошибка, а не «фильтра нет»: молча отданный каталог
+    целиком выглядит на фронте как применившийся фильтр."""
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/catalog/products?group_id=12,abc")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_get_products_treats_empty_group_id_as_no_filter(committing_session):
+    """Сброс фильтра интерфейс присылает пустым значением — это не ошибка."""
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/catalog/products?group_id=")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200

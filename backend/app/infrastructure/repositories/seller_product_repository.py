@@ -54,7 +54,7 @@ class SellerProductRepository:
         return items, total
 
     def list_visible_for_seller(
-        self, seller_id: int, *, group_id: int | None = None, search: str | None = None, sort: str = "name"
+        self, seller_id: int, *, group_ids: list[int] | None = None, search: str | None = None, sort: str = "name"
     ) -> list[SellerProduct]:
         """Каталог одного продавца для покупателя (REST_API.md,
         `GET /catalog/sellers/{id}/products`).
@@ -74,8 +74,8 @@ class SellerProductRepository:
                 Product.is_active.is_(True),
             )
         )
-        if group_id is not None:
-            query = query.filter(Product.product_group_id == group_id)
+        if group_ids is not None:
+            query = query.filter(Product.product_group_id.in_(group_ids))
         if search:
             pattern = f"%{search}%"
             query = query.filter(or_(SellerProduct.seller_name.ilike(pattern), Product.name.ilike(pattern)))

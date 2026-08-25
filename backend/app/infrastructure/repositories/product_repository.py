@@ -29,10 +29,14 @@ class ProductRepository:
             .all()
         )
 
-    def list_active(self, *, group_id: int | None = None, search: str | None = None) -> list[Product]:
+    def list_active(self, *, group_ids: list[int] | None = None, search: str | None = None) -> list[Product]:
+        """`group_ids` — уже развёрнутые ветки категорий (см.
+        `ProductGroupRepository.expand_subtrees`): здесь это просто список
+        групп, любая из которых подходит. Пустой список означает «ни одна
+        группа не подходит» и отличается от `None` — «фильтра нет»."""
         query = self.session.query(Product).filter(Product.is_active.is_(True))
-        if group_id is not None:
-            query = query.filter(Product.product_group_id == group_id)
+        if group_ids is not None:
+            query = query.filter(Product.product_group_id.in_(group_ids))
         if search:
             query = query.filter(Product.name.ilike(f"%{search}%"))
         return query.order_by(Product.name).all()

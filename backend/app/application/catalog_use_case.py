@@ -48,6 +48,14 @@ class CatalogUseCase:
         self.seller_gateway = SellerGateway(session)
         self.photo_gateway = PhotoGateway(session)
 
+    def _expand_groups(self, group_ids: list[int] | None) -> list[int] | None:
+        """Выбранные категории вместе с их ветками. `None` — фильтра нет, и
+        разворачивать нечего; отличать это от пустого списка обязательно, иначе
+        «ничего не выбрано» превратилось бы в «показать всё»."""
+        if group_ids is None:
+            return None
+        return self.product_group_repository.expand_subtrees(group_ids)
+
     def _visible_offers_by_product(self, product_ids: list[int]) -> dict[int, list]:
         offers = self.seller_product_repository.list_published_for_products(product_ids)
         seller_ids = list({offer.seller_id for offer in offers})
@@ -70,13 +78,18 @@ class CatalogUseCase:
             if product.id in visible_product_ids:
                 count_by_group[product.product_group_id] = count_by_group.get(product.product_group_id, 0) + 1
 
+        # Счётчик считается по той же границе, по которой работает фильтр
+        # (`group_id` = группа со всей веткой). Иначе категория обещала бы
+        # «Овощи (1)», а по клику отдавала бы четыре товара.
+        subtree_by_group = self.product_group_repository.subtree_ids_by_group([group.id for group in groups])
+
         return [
             {
                 "id": group.id,
                 "parent_id": group.parent_id,
                 "name": group.name,
                 "sort_order": group.sort_order,
-                "product_count": count_by_group.get(group.id, 0),
+                "product_count": sum(count_by_group.get(gid, 0) for gid in subtree_by_group[group.id]),
             }
             for group in groups
         ]
@@ -84,13 +97,13 @@ class CatalogUseCase:
     def list_products(
         self,
         *,
-        group_id: int | None = None,
+        group_ids: list[int] | None = None,
         search: str | None = None,
         sort: str = "name",
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[dict], int]:
-        products = self.product_repository.list_active(group_id=group_id, search=search)
+        products = self.product_repository.list_active(group_ids=self._expand_groups(group_ids), search=search)
         offers_by_product = self._visible_offers_by_product([p.id for p in products])
         visible_products = [p for p in products if p.id in offers_by_product]
 
@@ -247,7 +260,7 @@ class CatalogUseCase:
         self,
         seller_id: int,
         *,
-        group_id: int | None = None,
+        group_ids: list[int] | None = None,
         search: str | None = None,
         sort: str = "name",
         page: int = 1,
@@ -268,7 +281,7 @@ class CatalogUseCase:
             return None
 
         offers = self.seller_product_repository.list_visible_for_seller(
-            seller_id, group_id=group_id, search=search, sort=sort
+            seller_id, group_ids=self._expand_groups(group_ids), search=search, sort=sort
         )
         total = len(offers)
         page_items = offers[(page - 1) * limit : (page - 1) * limit + limit]

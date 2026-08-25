@@ -29,8 +29,11 @@ def insert_seller(session, *, name: str, is_active: bool = True) -> int:
     ).lastrowid
 
 
-def insert_group(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+def insert_group(session, *, name: str, parent_id: int | None = None) -> int:
+    return session.execute(
+        text("INSERT INTO ProductGroup (name, parent_id) VALUES (:name, :parent_id)"),
+        {"name": name, "parent_id": parent_id},
+    ).lastrowid
 
 
 def insert_product(session, *, group_id: int, name: str) -> int:
@@ -313,3 +316,64 @@ def test_returns_photo_urls(committing_session):
     photos = response.json()["products"][0]["photos"]
     assert len(photos) == 1
     assert photos[0].endswith("greenmarket/seller-products/test.jpg")
+
+
+def test_filters_by_several_groups_at_once(committing_session):
+    seller_id = insert_seller(committing_session, name="Продавец мульти-групп")
+    fruits = insert_group(committing_session, name="Фрукты мульти-групп")
+    vegetables = insert_group(committing_session, name="Овощи мульти-групп")
+    dairy = insert_group(committing_session, name="Молочное мульти-групп")
+    apple = insert_product(committing_session, group_id=fruits, name="Яблоко мульти-групп")
+    cucumber = insert_product(committing_session, group_id=vegetables, name="Огурец мульти-групп")
+    milk = insert_product(committing_session, group_id=dairy, name="Молоко мульти-групп")
+    insert_offer(committing_session, seller_id=seller_id, product_id=apple, seller_name="Яблоко своё")
+    insert_offer(committing_session, seller_id=seller_id, product_id=cucumber, seller_name="Огурец свой")
+    insert_offer(committing_session, seller_id=seller_id, product_id=milk, seller_name="Молоко своё")
+
+    response = get_products(committing_session, seller_id, f"?group_id={fruits},{vegetables}")
+
+    body = response.json()
+    assert sorted(p["name"] for p in body["products"]) == ["Огурец свой", "Яблоко своё"]
+    assert body["total"] == 2
+
+
+def test_multi_group_filter_stays_inside_the_seller(committing_session):
+    """Store Mode: расширение фильтра не должно приводить к товарам чужих
+    продавцов, даже если те лежат ровно в выбранных категориях."""
+    seller_id = insert_seller(committing_session, name="Свой продавец scope")
+    other_seller_id = insert_seller(committing_session, name="Чужой продавец scope")
+    fruits = insert_group(committing_session, name="Фрукты scope")
+    vegetables = insert_group(committing_session, name="Овощи scope")
+    apple = insert_product(committing_session, group_id=fruits, name="Яблоко scope")
+    cucumber = insert_product(committing_session, group_id=vegetables, name="Огурец scope")
+    insert_offer(committing_session, seller_id=seller_id, product_id=apple, seller_name="Яблоко своего")
+    insert_offer(committing_session, seller_id=other_seller_id, product_id=cucumber, seller_name="Огурец чужого")
+
+    response = get_products(committing_session, seller_id, f"?group_id={fruits},{vegetables}")
+
+    body = response.json()
+    assert [p["name"] for p in body["products"]] == ["Яблоко своего"]
+    assert body["total"] == 1
+
+
+def test_filters_by_parent_group_including_children(committing_session):
+    seller_id = insert_seller(committing_session, name="Продавец ветки каталога")
+    vegetables = insert_group(committing_session, name="Овощи ветки каталога")
+    cucumbers = insert_group(committing_session, name="Огурцы ветки каталога", parent_id=vegetables)
+    onion = insert_product(committing_session, group_id=vegetables, name="Лук ветки каталога")
+    cucumber = insert_product(committing_session, group_id=cucumbers, name="Огурец ветки каталога")
+    insert_offer(committing_session, seller_id=seller_id, product_id=onion, seller_name="Лук свой")
+    insert_offer(committing_session, seller_id=seller_id, product_id=cucumber, seller_name="Огурец свой")
+
+    response = get_products(committing_session, seller_id, f"?group_id={vegetables}")
+
+    assert sorted(p["name"] for p in response.json()["products"]) == ["Лук свой", "Огурец свой"]
+
+
+def test_rejects_non_numeric_group_id(committing_session):
+    seller_id = insert_seller(committing_session, name="Продавец мусорного group_id")
+
+    response = get_products(committing_session, seller_id, "?group_id=abc")
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"

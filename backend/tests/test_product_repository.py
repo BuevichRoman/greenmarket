@@ -54,7 +54,7 @@ def test_list_active_filters_by_group_id(session):
     product_a = insert_product(session, group_id=group_a, name="Товар группы A")
     insert_product(session, group_id=group_b, name="Товар группы B")
 
-    result = ProductRepository(session).list_active(group_id=group_a)
+    result = ProductRepository(session).list_active(group_ids=[group_a])
 
     assert [p.id for p in result] == [product_a]
 
