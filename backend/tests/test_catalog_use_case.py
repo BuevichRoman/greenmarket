@@ -7,8 +7,11 @@ from app.core.config import settings
 from app.platform.photo_storage import build_photo_url
 
 
-def insert_product_group(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+def insert_product_group(session, *, name: str, parent_id: int | None = None) -> int:
+    return session.execute(
+        text("INSERT INTO ProductGroup (name, parent_id) VALUES (:name, :parent_id)"),
+        {"name": name, "parent_id": parent_id},
+    ).lastrowid
 
 
 def insert_product(session, *, group_id: int, name: str) -> int:
@@ -93,7 +96,7 @@ def test_list_products_filters_by_group_id(session):
     insert_seller_product(session, seller_id=seller_id, product_id=product_a, price=10)
     insert_seller_product(session, seller_id=seller_id, product_id=product_b, price=10)
 
-    items, _ = CatalogUseCase(session).list_products(group_id=group_a)
+    items, _ = CatalogUseCase(session).list_products(group_ids=[group_a])
 
     ids = [i["id"] for i in items]
     assert product_a in ids
@@ -127,7 +130,7 @@ def test_list_products_sorts_by_price_when_requested(session):
     insert_seller_product(session, seller_id=seller_id, product_id=cheap_id, price=5)
     insert_seller_product(session, seller_id=seller_id, product_id=expensive_id, price=500)
 
-    items, _ = CatalogUseCase(session).list_products(sort="price", group_id=group_id)
+    items, _ = CatalogUseCase(session).list_products(sort="price", group_ids=[group_id])
 
     assert [i["id"] for i in items] == [cheap_id, expensive_id]
 
@@ -141,8 +144,8 @@ def test_list_products_paginates(session):
         insert_seller_product(session, seller_id=seller_id, product_id=pid, price=10)
         product_ids.append(pid)
 
-    page_1, total = CatalogUseCase(session).list_products(group_id=group_id, page=1, limit=2)
-    page_2, _ = CatalogUseCase(session).list_products(group_id=group_id, page=2, limit=2)
+    page_1, total = CatalogUseCase(session).list_products(group_ids=[group_id], page=1, limit=2)
+    page_2, _ = CatalogUseCase(session).list_products(group_ids=[group_id], page=2, limit=2)
 
     assert total == 3
     assert len(page_1) == 2
@@ -256,7 +259,7 @@ def test_list_products_breaks_price_ties_deterministically_for_cheapest_offer(se
     insert_seller_product_photo(session, seller_product_id=lower_id, s3_key="lower.jpg")
     insert_seller_product_photo(session, seller_product_id=higher_id, s3_key="higher.jpg")
 
-    items, _ = CatalogUseCase(session).list_products(group_id=group_id)
+    items, _ = CatalogUseCase(session).list_products(group_ids=[group_id])
 
     item = next(i for i in items if i["id"] == product_id)
     assert item["min_price"] == 30
@@ -289,3 +292,79 @@ def test_get_product_returns_photo_urls_for_offer(session):
         "offer.jpg", bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
     )
     assert result["offers"][0]["photos"] == [expected_url]
+
+
+def test_list_products_accepts_several_groups_at_once(session):
+    """Несколько категорий сразу — объединение (OR), а не пересечение: товар
+    относится ровно к одной группе, и пересечение всегда было бы пустым."""
+    group_a = insert_product_group(session, name="Группа A мульти-фильтра")
+    group_b = insert_product_group(session, name="Группа B мульти-фильтра")
+    group_c = insert_product_group(session, name="Группа C мульти-фильтра")
+    product_a = insert_product(session, group_id=group_a, name="Товар группы A мульти")
+    product_b = insert_product(session, group_id=group_b, name="Товар группы B мульти")
+    product_c = insert_product(session, group_id=group_c, name="Товар группы C мульти")
+    seller_id = insert_active_seller(session, name="Продавец мульти-фильтра")
+    for product_id in (product_a, product_b, product_c):
+        insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    items, total = CatalogUseCase(session).list_products(group_ids=[group_a, group_b])
+
+    ids = [i["id"] for i in items]
+    assert product_a in ids
+    assert product_b in ids
+    assert product_c not in ids
+    assert total == 2
+
+
+def test_list_products_by_parent_group_includes_child_products(session):
+    parent = insert_product_group(session, name="Родитель для фильтра по ветке")
+    child = insert_product_group(session, name="Ребёнок для фильтра по ветке", parent_id=parent)
+    own_product = insert_product(session, group_id=parent, name="Товар прямо в родительской группе")
+    child_product = insert_product(session, group_id=child, name="Товар дочерней группы")
+    seller_id = insert_active_seller(session, name="Продавец фильтра по ветке")
+    insert_seller_product(session, seller_id=seller_id, product_id=own_product, price=10)
+    insert_seller_product(session, seller_id=seller_id, product_id=child_product, price=10)
+
+    items, total = CatalogUseCase(session).list_products(group_ids=[parent])
+
+    ids = [i["id"] for i in items]
+    assert own_product in ids
+    assert child_product in ids
+    assert total == 2
+
+
+def test_list_products_multi_group_keeps_search_and_pagination(session):
+    """Мульти-категория считается вместе с остальными фильтрами, а `total` —
+    после всех: иначе пагинация на фронте разъедется с содержимым страницы."""
+    group_a = insert_product_group(session, name="Группа A мульти+поиск")
+    group_b = insert_product_group(session, name="Группа B мульти+поиск")
+    matching_a = insert_product(session, group_id=group_a, name="Редис Дайкон мультипоиск")
+    matching_b = insert_product(session, group_id=group_b, name="Редис Красный мультипоиск")
+    other = insert_product(session, group_id=group_a, name="Пастернак мультипоиск")
+    seller_id = insert_active_seller(session, name="Продавец мульти+поиск")
+    for product_id in (matching_a, matching_b, other):
+        insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    page_1, total = CatalogUseCase(session).list_products(
+        group_ids=[group_a, group_b], search="мультипоиск", page=1, limit=2
+    )
+
+    assert total == 3
+    assert len(page_1) == 2
+
+
+def test_list_groups_counts_products_of_the_whole_branch(session):
+    """`product_count` считается по той же границе, по которой работает фильтр:
+    иначе категория обещала бы «Овощи (1)», а по клику отдавала бы четыре."""
+    parent = insert_product_group(session, name="Родитель для счётчика ветки")
+    child = insert_product_group(session, name="Ребёнок для счётчика ветки", parent_id=parent)
+    own_product = insert_product(session, group_id=parent, name="Товар родителя для счётчика")
+    child_product = insert_product(session, group_id=child, name="Товар ребёнка для счётчика")
+    seller_id = insert_active_seller(session, name="Продавец счётчика ветки")
+    insert_seller_product(session, seller_id=seller_id, product_id=own_product, price=10)
+    insert_seller_product(session, seller_id=seller_id, product_id=child_product, price=10)
+
+    groups = {g["id"]: g for g in CatalogUseCase(session).list_groups()}
+
+    assert groups[parent]["product_count"] == 2
+    assert groups[child]["product_count"] == 1

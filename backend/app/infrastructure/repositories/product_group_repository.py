@@ -52,6 +52,60 @@ class ProductGroupRepository:
         self.session.flush()
         return group
 
+    def subtree_ids_by_group(self, group_ids: list[int]) -> dict[int, list[int]]:
+        """Для каждой запрошенной группы — она сама и все её потомки.
+
+        Выбор категории в каталоге покупателя означает ветку целиком, а не одну
+        строку справочника: товары висят и на листьях, и на корнях сразу
+        («Лук» лежит прямо в «Овощах»), поэтому точное совпадение оставило бы
+        покупателя без большей части выбранной категории.
+
+        Неизвестный id возвращается как есть: фильтр по нему ничего не найдёт —
+        это честнее, чем выбросить его и молча отдать каталог целиком.
+
+        Активность группы здесь не проверяется — фильтр каталога её никогда не
+        проверял и для одиночной группы: видимость товара определяют
+        `Product.is_active` и наличие предложения, а не флаг его группы.
+        """
+        if not group_ids:
+            return {}
+
+        children_by_parent: dict[int, list[int]] = {}
+        for child_id, parent_id in self.session.query(ProductGroup.id, ProductGroup.parent_id):
+            if parent_id is not None:
+                children_by_parent.setdefault(parent_id, []).append(child_id)
+
+        result: dict[int, list[int]] = {}
+        for group_id in group_ids:
+            if group_id in result:
+                continue
+            branch: list[int] = []
+            seen: set[int] = set()
+            queue = [group_id]
+            while queue:
+                current = queue.pop(0)
+                # Множество посещённых защищает от цикла в parent_id: схема его
+                # не допускает, но обход не должен зависеть от этого.
+                if current in seen:
+                    continue
+                seen.add(current)
+                branch.append(current)
+                queue.extend(children_by_parent.get(current, []))
+            result[group_id] = branch
+        return result
+
+    def expand_subtrees(self, group_ids: list[int]) -> list[int]:
+        """Те же ветки, но одним списком без повторов — для фильтра `IN (...)`,
+        где пересечение выбранных веток значения не имеет."""
+        expanded: list[int] = []
+        seen: set[int] = set()
+        for branch in self.subtree_ids_by_group(group_ids).values():
+            for group_id in branch:
+                if group_id not in seen:
+                    seen.add(group_id)
+                    expanded.append(group_id)
+        return expanded
+
     def is_descendant(self, group_id: int, candidate_id: int) -> bool:
         """Является ли candidate_id потомком group_id. Нужно, чтобы не дать
         перенести группу под собственного потомка: ветка осталась бы в списке,

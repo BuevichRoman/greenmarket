@@ -29,6 +29,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 
 
+def _parse_group_ids(raw: list[str] | None) -> list[int] | None:
+    """`group_id` каталога покупателя: одна категория или несколько сразу.
+
+    Принимаются оба способа перечисления — `group_id=12,17` и
+    `group_id=12&group_id=17`; они означают одно и то же. Пустое значение
+    (`group_id=`) — это сброс фильтра, а не ошибка: интерфейс присылает его,
+    снимая выбор всех категорий.
+
+    Нечисловое значение отклоняется, а не игнорируется: молча отданный целиком
+    каталог выглядит на фронте как успешно применившийся фильтр, и расхождение
+    обнаруживается уже у покупателя.
+    """
+    if raw is None:
+        return None
+    tokens = [token.strip() for value in raw for token in value.split(",")]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return None
+    group_ids: list[int] = []
+    for token in tokens:
+        if not token.isdigit():
+            raise ValueError(
+                f"group_id — целое число или список целых через запятую, получено «{token}»"
+            )
+        group_ids.append(int(token))
+    return list(dict.fromkeys(group_ids))
+
+
 @router.get("/groups", response_model=ProductGroupsResponse)
 def list_groups(session: Session = Depends(get_session)) -> ProductGroupsResponse:
     use_case = CatalogUseCase(session)
@@ -38,15 +66,19 @@ def list_groups(session: Session = Depends(get_session)) -> ProductGroupsRespons
 
 @router.get("/products", response_model=ProductListResponse)
 def list_products(
-    group_id: int | None = None,
+    group_id: list[str] | None = Query(default=None),
     search: str | None = None,
     sort: Literal["name", "price"] = "name",
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
-) -> ProductListResponse:
+) -> ProductListResponse | JSONResponse:
+    try:
+        group_ids = _parse_group_ids(group_id)
+    except ValueError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
     use_case = CatalogUseCase(session)
-    items, total = use_case.list_products(group_id=group_id, search=search, sort=sort, page=page, limit=limit)
+    items, total = use_case.list_products(group_ids=group_ids, search=search, sort=sort, page=page, limit=limit)
     return ProductListResponse(
         products=[ProductListItem(**item) for item in items],
         page=page,
@@ -104,7 +136,7 @@ def get_seller_card(seller_id: int, session: Session = Depends(get_session)) -> 
 @router.get("/sellers/{seller_id}/products", response_model=SellerCatalogResponse)
 def list_seller_products(
     seller_id: int,
-    group_id: int | None = None,
+    group_id: list[str] | None = Query(default=None),
     search: str | None = None,
     sort: Literal["name", "price"] = "name",
     page: int = Query(default=1, ge=1),
@@ -112,8 +144,12 @@ def list_seller_products(
     session: Session = Depends(get_session),
 ) -> SellerCatalogResponse | JSONResponse:
     """Каталог одного продавца — экран «товары выбранного продавца»."""
+    try:
+        group_ids = _parse_group_ids(group_id)
+    except ValueError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
     result = CatalogUseCase(session).list_seller_products(
-        seller_id, group_id=group_id, search=search, sort=sort, page=page, limit=limit
+        seller_id, group_ids=group_ids, search=search, sort=sort, page=page, limit=limit
     )
     if result is None:
         return _not_found(f"Продавец {seller_id} не найден или недоступен")
