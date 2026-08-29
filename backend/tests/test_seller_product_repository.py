@@ -182,3 +182,34 @@ def test_count_published_only_counts_the_given_seller(session):
     repository.create(seller_id=seller_b, product_id=None, seller_name="Товар Б", price=1, stock=1, unit="шт", description=None, is_published=True)
 
     assert repository.count_published(seller_a) == 1
+
+
+def test_list_visible_for_seller_search_matches_words_in_any_order(session):
+    """Поиск внутри каталога продавца идёт по обоим именам сразу, и слова
+    сопоставляются независимо: слово из собственного наименования продавца и
+    слово из эталонного вместе тоже должны находить строку."""
+    seller_id = insert_seller(session, name="Продавец словарного поиска")
+    group_id = insert_product_group(session, name="Группа поиска по словам продавца")
+    product_id = insert_product(session, group_id=group_id, name="Клюква эталонная словарная")
+    repository = SellerProductRepository(session)
+    offer = repository.create(
+        seller_id=seller_id, product_id=product_id, seller_name="Клюква вяленая своя словарная",
+        price=10, stock=1, unit="кг", description=None, is_published=True,
+    )
+
+    found = {o.id for o in repository.list_visible_for_seller(seller_id, search="  словарная эталонная своя  ")}
+
+    assert offer.id in found
+
+
+def test_list_visible_for_seller_search_treats_percent_as_a_character(session):
+    seller_id = insert_seller(session, name="Продавец процентного поиска")
+    group_id = insert_product_group(session, name="Группа поиска с процентом продавца")
+    product_id = insert_product(session, group_id=group_id, name="Товар продавца без процента")
+    repository = SellerProductRepository(session)
+    repository.create(
+        seller_id=seller_id, product_id=product_id, seller_name="Своё имя без процента",
+        price=10, stock=1, unit="кг", description=None, is_published=True,
+    )
+
+    assert repository.list_visible_for_seller(seller_id, search="%") == []

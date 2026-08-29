@@ -88,3 +88,44 @@ def test_get_active_returns_product_for_active_product(session):
 
     assert result is not None
     assert result.id == active_id
+
+
+def test_list_active_search_ignores_edge_whitespace(session):
+    """Пробелы по краям приходят из интерфейса сами (автодополнение клавиатуры,
+    вставка из буфера) и не должны обнулять выдачу."""
+    group_id = insert_product_group(session, name="Группа для поиска с пробелами")
+    product_id = insert_product(session, group_id=group_id, name="Клюква болотная поисковая")
+
+    found = {p.id for p in ProductRepository(session).list_active(search="  клюква болотная  ")}
+
+    assert product_id in found
+
+
+def test_list_active_search_matches_words_in_any_order(session):
+    """Слова сопоставляются независимо: покупатель не обязан угадывать порядок
+    слов в справочнике."""
+    group_id = insert_product_group(session, name="Группа для поиска по словам")
+    product_id = insert_product(session, group_id=group_id, name="Клюква вяленая порядковая")
+
+    found = {p.id for p in ProductRepository(session).list_active(search="вяленая порядковая клюква")}
+
+    assert product_id in found
+
+
+def test_list_active_search_treats_percent_as_a_character(session):
+    """`%` — обычный символ ввода, а не подстановка LIKE. Иначе запрос из одного
+    символа возвращал весь каталог, что на фронте неотличимо от применившегося
+    поиска."""
+    group_id = insert_product_group(session, name="Группа для поиска с процентом")
+    insert_product(session, group_id=group_id, name="Товар без процента в имени")
+
+    assert ProductRepository(session).list_active(search="%") == []
+
+
+def test_list_active_search_treats_underscore_as_a_character(session):
+    group_id = insert_product_group(session, name="Группа для поиска с подчёркиванием")
+    product_id = insert_product(session, group_id=group_id, name="Кабачок подчёркнутый")
+
+    result = ProductRepository(session).list_active(search="К_бачок подчёркнутый")
+
+    assert product_id not in {p.id for p in result}
