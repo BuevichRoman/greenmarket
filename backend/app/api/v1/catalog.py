@@ -19,6 +19,7 @@ from app.api.v1.catalog_schemas import (
     SellerCatalogItem,
     SellerCatalogResponse,
     SellerOfferItem,
+    SuggestResponse,
 )
 from app.api.v1.schemas import error_response
 from app.application.catalog_use_case import CatalogUseCase
@@ -85,6 +86,28 @@ def list_products(
         limit=limit,
         total=total,
     )
+
+
+@router.get("/suggest", response_model=SuggestResponse)
+def suggest(
+    q: str | None = None,
+    group_id: list[str] | None = Query(default=None),
+    seller_id: int | None = None,
+    limit: int = Query(default=10, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> SuggestResponse | JSONResponse:
+    """Подсказки при вводе: наименования товарных позиций.
+
+    `q` понимается ровно как `search` у каталога, `group_id` — как там же,
+    включая перечисление нескольких категорий. Границы `limit` тоже общие с
+    каталогом, отличается только значение по умолчанию.
+    """
+    try:
+        group_ids = _parse_group_ids(group_id)
+    except ValueError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
+    names = CatalogUseCase(session).suggest_names(q=q, group_ids=group_ids, seller_id=seller_id, limit=limit)
+    return SuggestResponse(suggestions=names)
 
 
 def _not_found(message: str) -> JSONResponse:

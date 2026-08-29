@@ -31,6 +31,17 @@ class ProductListResponse(BaseModel):
     total: int
 
 
+class SuggestResponse(BaseModel):
+    """Подсказки при вводе — плоский список наименований товарных позиций.
+
+    Список завёрнут в объект, как и все остальные ответы API: голый массив
+    верхнего уровня нечем дополнить, не сломав потребителя, а подсказкам
+    рано или поздно понадобится сказать о себе что-то ещё.
+    """
+
+    suggestions: list[str]
+
+
 class SellerOfferItem(BaseModel):
     seller_product_id: int
     seller_id: int

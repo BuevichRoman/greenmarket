@@ -139,6 +139,54 @@ class CatalogUseCase:
             )
         return items, total
 
+    def suggest_names(
+        self,
+        *,
+        q: str | None = None,
+        group_ids: list[int] | None = None,
+        seller_id: int | None = None,
+        limit: int = 10,
+    ) -> list[str]:
+        """Подсказки при вводе: наименования товарных позиций (REST_API.md,
+        `GET /catalog/suggest`).
+
+        Единица выдачи — позиция справочника, а не предложение продавца.
+        Наименование предложения здесь не участвует ни в поиске, ни в ответе:
+        одна позиция лежит у нескольких продавцов и у каждого продавца может
+        иметь несколько строк (повторная публикация книги заводит их заново), и
+        по предложениям список подсказок выродился бы в одно слово, повторённое
+        десять раз. Наименования позиций уникальны по построению
+        (`uk_Product_name`, миграция 019), поэтому отдельного схлопывания
+        одинаковых имён не требуется — достаточно перебирать позиции.
+
+        Правило совпадения — то же, что у `search` в каталоге (name_search.py):
+        слова в любом порядке, `%` и `_` — обычные символы. Расхождение здесь
+        недопустимо: подсказка, по которой поиск ничего не находит, хуже
+        отсутствующей подсказки.
+
+        Видимость тоже общая с каталогом: позиция попадает в подсказки, только
+        если у неё есть видимое предложение. `seller_id` сужает это до
+        предложений одного продавца — неизвестный или деактивированный продавец
+        даёт пустой список, а не 404: это фильтр запроса, а не его предмет.
+
+        Ранжирования нет (см. API_Backlog.md, BL-04) — порядок алфавитный, и
+        `limit` отрезает от начала алфавита.
+        """
+        products = self.product_repository.list_active(group_ids=self._expand_groups(group_ids), search=q)
+        offers_by_product = self._visible_offers_by_product([p.id for p in products])
+
+        names: list[str] = []
+        for product in products:
+            offers = offers_by_product.get(product.id, [])
+            if seller_id is not None:
+                offers = [offer for offer in offers if offer.seller_id == seller_id]
+            if not offers:
+                continue
+            names.append(product.name)
+            if len(names) == limit:
+                break
+        return names
+
     def get_product(self, product_id: int) -> dict | None:
         product = self.product_repository.get_active(product_id)
         if product is None:

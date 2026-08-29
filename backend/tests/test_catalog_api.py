@@ -431,3 +431,47 @@ def test_get_products_treats_empty_group_id_as_no_filter(committing_session):
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
+
+
+def test_get_suggest_returns_flat_names(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа для роутера suggest")
+    product_id = insert_product(committing_session, group_id=group_id, name="Клюква вяленая для роутера suggest")
+    seller_id = insert_active_seller(committing_session, name="Продавец для роутера suggest")
+    insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=42)
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/suggest?q=клюква&group_id={group_id}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {"suggestions": ["Клюква вяленая для роутера suggest"]}
+
+
+def test_get_suggest_rejects_non_numeric_group_id(committing_session):
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/catalog/suggest?group_id=овощи")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_get_suggest_returns_at_most_ten_names_by_default(committing_session):
+    group_id = insert_product_group(committing_session, name="Группа для роутера suggest limit")
+    seller_id = insert_active_seller(committing_session, name="Продавец для роутера suggest limit")
+    for index in range(12):
+        product_id = insert_product(
+            committing_session, group_id=group_id, name=f"Товар {index:02d} для роутера suggest limit"
+        )
+        insert_seller_product(committing_session, seller_id=seller_id, product_id=product_id, price=10)
+    override_session(committing_session)
+    client = TestClient(app)
+
+    response = client.get(f"/api/v1/catalog/suggest?group_id={group_id}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert len(response.json()["suggestions"]) == 10
