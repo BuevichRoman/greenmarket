@@ -368,3 +368,96 @@ def test_list_groups_counts_products_of_the_whole_branch(session):
 
     assert groups[parent]["product_count"] == 2
     assert groups[child]["product_count"] == 1
+
+
+def test_suggest_returns_only_names_of_visible_products(session):
+    group_id = insert_product_group(session, name="Группа подсказок: видимость")
+    visible = insert_product(session, group_id=group_id, name="Клюква вяленая, подсказка видимая")
+    insert_product(session, group_id=group_id, name="Клюква мочёная, подсказка без предложений")
+    seller_id = insert_active_seller(session, name="Продавец подсказок: видимость")
+    insert_seller_product(session, seller_id=seller_id, product_id=visible, price=10)
+
+    names = CatalogUseCase(session).suggest_names(q="клюква", group_ids=[group_id])
+
+    assert names == ["Клюква вяленая, подсказка видимая"]
+
+
+def test_suggest_excludes_names_of_inactive_sellers(session):
+    group_id = insert_product_group(session, name="Группа подсказок: неактивный продавец")
+    product_id = insert_product(session, group_id=group_id, name="Морковь, подсказка неактивного продавца")
+    seller_id = insert_active_seller(session, name="Продавец подсказок: скоро неактивен")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+    session.execute(text("UPDATE Seller SET is_active = FALSE WHERE id = :id"), {"id": seller_id})
+
+    names = CatalogUseCase(session).suggest_names(group_ids=[group_id])
+
+    assert names == []
+
+
+def test_suggest_returns_name_once_for_several_offers(session):
+    """Единица подсказки — наименование справочника, а не строка каталога.
+
+    Повторная публикация книги заводит новые предложения на ту же позицию, и у
+    разных продавцов позиция та же самая: в подсказках всё это обязано слиться
+    в одно наименование, иначе покупатель увидит список из одного слова.
+    """
+    group_id = insert_product_group(session, name="Группа подсказок: дубли")
+    product_id = insert_product(session, group_id=group_id, name="Мёд гречишный, подсказка одна")
+    seller_a = insert_active_seller(session, name="Продавец подсказок: дубли А")
+    seller_b = insert_active_seller(session, name="Продавец подсказок: дубли Б")
+    insert_seller_product(session, seller_id=seller_a, product_id=product_id, price=10)
+    insert_seller_product(session, seller_id=seller_a, product_id=product_id, price=20)
+    insert_seller_product(session, seller_id=seller_b, product_id=product_id, price=30)
+
+    names = CatalogUseCase(session).suggest_names(group_ids=[group_id])
+
+    assert names == ["Мёд гречишный, подсказка одна"]
+
+
+def test_suggest_filters_by_seller(session):
+    group_id = insert_product_group(session, name="Группа подсказок: продавец")
+    own = insert_product(session, group_id=group_id, name="Свёкла, подсказка своего продавца")
+    other = insert_product(session, group_id=group_id, name="Тыква, подсказка чужого продавца")
+    seller_a = insert_active_seller(session, name="Продавец подсказок: свой")
+    seller_b = insert_active_seller(session, name="Продавец подсказок: чужой")
+    insert_seller_product(session, seller_id=seller_a, product_id=own, price=10)
+    insert_seller_product(session, seller_id=seller_b, product_id=other, price=10)
+
+    names = CatalogUseCase(session).suggest_names(group_ids=[group_id], seller_id=seller_a)
+
+    assert names == ["Свёкла, подсказка своего продавца"]
+
+
+def test_suggest_matches_words_in_any_order(session):
+    group_id = insert_product_group(session, name="Группа подсказок: порядок слов")
+    product_id = insert_product(session, group_id=group_id, name="Клюква вяленая, подсказка порядок")
+    seller_id = insert_active_seller(session, name="Продавец подсказок: порядок слов")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    names = CatalogUseCase(session).suggest_names(q="вяленая клюква", group_ids=[group_id])
+
+    assert names == ["Клюква вяленая, подсказка порядок"]
+
+
+def test_suggest_treats_percent_as_plain_character(session):
+    """`%` в запросе не должен возвращать каталог целиком — та же причина, по
+    которой он экранирован в `search`, и для голосового ввода она острее:
+    спецсимвол там появляется не от покупателя, а от распознавания речи."""
+    group_id = insert_product_group(session, name="Группа подсказок: процент")
+    product_id = insert_product(session, group_id=group_id, name="Огурцы, подсказка без процента")
+    seller_id = insert_active_seller(session, name="Продавец подсказок: процент")
+    insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    assert CatalogUseCase(session).suggest_names(q="%", group_ids=[group_id]) == []
+
+
+def test_suggest_without_query_returns_alphabetical_head(session):
+    group_id = insert_product_group(session, name="Группа подсказок: лимит")
+    seller_id = insert_active_seller(session, name="Продавец подсказок: лимит")
+    for name in ("Ямс, подсказка лимит", "Абрикос, подсказка лимит", "Базилик, подсказка лимит"):
+        product_id = insert_product(session, group_id=group_id, name=name)
+        insert_seller_product(session, seller_id=seller_id, product_id=product_id, price=10)
+
+    names = CatalogUseCase(session).suggest_names(q="   ", group_ids=[group_id], limit=2)
+
+    assert names == ["Абрикос, подсказка лимит", "Базилик, подсказка лимит"]
