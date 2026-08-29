@@ -2,6 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.models import Product, ProductGroup, SellerProduct
+from app.infrastructure.repositories.name_search import LIKE_ESCAPE, name_search_patterns
 
 
 class ProductRepository:
@@ -37,8 +38,8 @@ class ProductRepository:
         query = self.session.query(Product).filter(Product.is_active.is_(True))
         if group_ids is not None:
             query = query.filter(Product.product_group_id.in_(group_ids))
-        if search:
-            query = query.filter(Product.name.ilike(f"%{search}%"))
+        for pattern in name_search_patterns(search):
+            query = query.filter(Product.name.ilike(pattern, escape=LIKE_ESCAPE))
         return query.order_by(Product.name).all()
 
     def list_for_admin(

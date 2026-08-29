@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.infrastructure.models import Product, SellerProduct
+from app.infrastructure.repositories.name_search import LIKE_ESCAPE, name_search_patterns
 
 
 def moderation_status_for(product_id: int | None) -> str:
@@ -76,9 +77,16 @@ class SellerProductRepository:
         )
         if group_ids is not None:
             query = query.filter(Product.product_group_id.in_(group_ids))
-        if search:
-            pattern = f"%{search}%"
-            query = query.filter(or_(SellerProduct.seller_name.ilike(pattern), Product.name.ilike(pattern)))
+        for pattern in name_search_patterns(search):
+            # Каждое слово ищется в обоих именах сразу: слово из собственного
+            # наименования продавца и слово из эталонного вместе тоже должны
+            # находить строку — на экране покупатель видит их рядом.
+            query = query.filter(
+                or_(
+                    SellerProduct.seller_name.ilike(pattern, escape=LIKE_ESCAPE),
+                    Product.name.ilike(pattern, escape=LIKE_ESCAPE),
+                )
+            )
         order = SellerProduct.price if sort == "price" else SellerProduct.seller_name
         return query.order_by(order, SellerProduct.id).all()
 
