@@ -6,6 +6,7 @@ kwork/
 *.html
 !apps_script/**/*.html
 !seller-cabinet/index.html
+!appsmith/seller-catalog-widget.html
 CLAUDE.md
 DIAGONST/
 platform_core/
