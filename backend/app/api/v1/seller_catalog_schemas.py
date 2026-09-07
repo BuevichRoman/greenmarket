@@ -119,3 +119,19 @@ class SellerProductUpdateRequest(BaseModel):
 
     def nulled_non_nullable(self) -> list[str]:
         return [name for name in self.NOT_NULLABLE if name in self.model_fields_set and getattr(self, name) is None]
+
+
+class SellerProductPhotoResponse(BaseModel):
+    """Ответ на загрузку фотографии.
+
+    Состав идёт от существующей модели проекта, как и требует ТЗ: у
+    `SellerProductPhoto` ключ составной, отдельного `id` в ней нет, а порядок
+    показа называется `sort_order`. Поэтому вместо `id`/`position` из текста ТЗ
+    здесь пара `seller_product_id`/`photo_id` и `sort_order` — переименовывать
+    поля модели ради формулировки было бы хуже.
+    """
+
+    seller_product_id: int
+    photo_id: int
+    url: str
+    sort_order: int

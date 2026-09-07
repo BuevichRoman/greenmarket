@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.api.v1.seller_catalog_schemas import (
     SellerProductGroupListResponse,
     SellerProductGroupOption,
     SellerProductCreateRequest,
+    SellerProductPhotoResponse,
     SellerProductUpdateRequest,
 )
 from app.api.v1.seller_schemas import (
@@ -41,8 +42,10 @@ from app.infrastructure.repositories.seller_product_repository import (
     SellerProductRepository,
     UnknownSortFieldError,
 )
+from app.api.v1.photos import get_photo_storage
 from app.platform.photo_gateway import PhotoGateway
-from app.platform.photo_storage import build_photo_url
+from app.platform.photo_storage import PhotoStorage, build_photo_url
+from app.platform.photo_upload import PhotoUploadError, read_validated_photo
 from app.platform.seller_gateway import SellerGateway
 from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
@@ -456,3 +459,52 @@ def update_seller_product(
 
     session.commit()
     return _detail_or_none(session, access.seller_id, updated.id)
+
+
+@router.post("/products/{seller_product_id}/photos", response_model=SellerProductPhotoResponse, status_code=201)
+def upload_seller_product_photo(
+    seller_product_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+    storage=Depends(get_photo_storage),
+) -> SellerProductPhotoResponse | JSONResponse:
+    """Загрузить фотографию и сразу привязать её к позиции каталога.
+
+    Одним запросом, а не двумя: без привязки Seller Admin не может довести
+    новый товар до витрины — товар без фотографии покупателю не показывается,
+    а связать фотографию с товаром вне рабочей книги до сих пор было нечем.
+
+    Правила приёма файла те же, что у загрузки из книги, — общий модуль
+    `photo_upload`, чтобы отклонённое в одном интерфейсе не проходило в другом.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    owned = SellerProductRepository(session).find_for_seller_admin(access.seller_id, seller_product_id)
+    if owned is None:
+        # Проверка владения раньше чтения файла: чужой товар не должен успевать
+        # положить байты в S3.
+        return error_response(404, "SELLER_PRODUCT_NOT_FOUND", "Позиция каталога не найдена")
+
+    try:
+        file_bytes = read_validated_photo(file)
+    except PhotoUploadError as exc:
+        return error_response(exc.status_code, exc.code, exc.message)
+
+    photo_storage = storage or PhotoStorage(
+        bucket=settings.s3_bucket, region=settings.s3_region, endpoint_url=settings.s3_endpoint_url or None
+    )
+    s3_key = photo_storage.upload(file_bytes, file.content_type)
+    photo_id = PhotoGateway(session).create(s3_key=s3_key, seller_id=access.seller_id)
+    sort_order = SellerProductPhotoRepository(session).append(seller_product_id, photo_id)
+    session.commit()
+
+    return SellerProductPhotoResponse(
+        seller_product_id=seller_product_id,
+        photo_id=photo_id,
+        url=build_photo_url(
+            s3_key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        ),
+        sort_order=sort_order,
+    )

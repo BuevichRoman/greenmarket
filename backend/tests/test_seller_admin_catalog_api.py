@@ -368,3 +368,151 @@ def test_patch_duplicate_sku_returns_409(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "SELLER_SKU_ALREADY_EXISTS"
+
+
+# ── Фотографии ───────────────────────────────────────────────────────────────
+
+JPEG = b"\xff\xd8\xff" + b"body"
+
+
+def with_storage():
+    from app.api.v1.photos import get_photo_storage
+    from app.platform.photo_storage import PhotoStorage
+
+    class FakeS3Client:
+        def put_object(self, **kwargs):
+            return None
+
+    app.dependency_overrides[get_photo_storage] = lambda: PhotoStorage(
+        bucket="test-bucket", client=FakeS3Client()
+    )
+
+
+def upload(client, seller_product_id, *, data=JPEG, content_type="image/jpeg", name="photo.jpg"):
+    import io as _io
+
+    return client.post(
+        f"/api/v1/seller/products/{seller_product_id}/photos",
+        files={"file": (name, _io.BytesIO(data), content_type)},
+        headers=AUTH,
+    )
+
+
+def test_photo_upload_attaches_to_own_product(committing_session):
+    """Загрузка и привязка одним запросом: без привязки Seller Admin не может
+    довести новый товар до витрины."""
+    seller_id = insert_seller(committing_session, name="Ферма фото API")
+    user_id = insert_user(committing_session, name="Пользователь фото API")
+    offer = add_offer(committing_session, seller_id, name="Товар фото API")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    response = upload(client, offer.id)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 201
+    body = response.json()
+    assert body["seller_product_id"] == offer.id
+    assert body["sort_order"] == 0
+    assert body["url"]
+
+
+def test_photo_upload_appends_to_the_end_of_gallery(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма порядка фото")
+    user_id = insert_user(committing_session, name="Пользователь порядка фото")
+    offer = add_offer(committing_session, seller_id, name="Товар порядка фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    upload(client, offer.id)
+    second = upload(client, offer.id)
+
+    app.dependency_overrides.clear()
+    assert second.json()["sort_order"] == 1
+
+
+def test_photo_upload_to_foreign_product_is_not_found(committing_session):
+    mine = insert_seller(committing_session, name="Ферма своя фото")
+    theirs = insert_seller(committing_session, name="Ферма чужая фото")
+    user_id = insert_user(committing_session, name="Пользователь чужого фото")
+    foreign = add_offer(committing_session, theirs, name="Чужой товар фото")
+    client = client_for(committing_session, mine, user_id)
+    with_storage()
+
+    response = upload(client, foreign.id)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+
+def test_photo_upload_rejects_unsupported_content_type(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма типа фото")
+    user_id = insert_user(committing_session, name="Пользователь типа фото")
+    offer = add_offer(committing_session, seller_id, name="Товар типа фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    response = upload(client, offer.id, data=b"%PDF-1.4", content_type="application/pdf", name="doc.pdf")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 415
+
+
+def test_photo_upload_rejects_payload_not_matching_type(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма подделки фото")
+    user_id = insert_user(committing_session, name="Пользователь подделки фото")
+    offer = add_offer(committing_session, seller_id, name="Товар подделки фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    response = upload(client, offer.id, data=b"%PDF-1.4 not an image")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_IMAGE_PAYLOAD"
+
+
+def test_photo_upload_rejects_oversized_file(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма размера фото")
+    user_id = insert_user(committing_session, name="Пользователь размера фото")
+    offer = add_offer(committing_session, seller_id, name="Товар размера фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    response = upload(client, offer.id, data=JPEG + b"x" * (10 * 1024 * 1024))
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 413
+
+
+def test_photo_upload_without_token_returns_401(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма фото без токена")
+    user_id = insert_user(committing_session, name="Пользователь фото без токена")
+    offer = add_offer(committing_session, seller_id, name="Товар фото без токена")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+    import io as _io
+
+    response = client.post(
+        f"/api/v1/seller/products/{offer.id}/photos",
+        files={"file": ("photo.jpg", _io.BytesIO(JPEG), "image/jpeg")},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+
+def test_uploaded_photo_appears_in_product_detail(committing_session):
+    """Сквозной кусок сценария ТЗ: создать товар, загрузить фото — карточка
+    отдаёт его ссылкой."""
+    seller_id = insert_seller(committing_session, name="Ферма сквозного фото")
+    user_id = insert_user(committing_session, name="Пользователь сквозного фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+    created = client.post("/api/v1/seller/products", json=NEW_PRODUCT, headers=AUTH).json()
+
+    upload(client, created["id"])
+    detail = client.get(f"/api/v1/seller/products/{created['id']}", headers=AUTH).json()
+
+    app.dependency_overrides.clear()
+    assert len(detail["photos"]) == 1

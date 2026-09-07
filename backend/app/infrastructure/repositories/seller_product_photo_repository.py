@@ -20,6 +20,26 @@ class SellerProductPhotoRepository:
             )
         self.session.flush()
 
+    def append(self, seller_product_id: int, photo_id: int) -> int:
+        """Добавляет фотографию в конец галереи и возвращает её порядок.
+
+        В отличие от `replace_for_product` это именно добавление: Seller Admin
+        грузит по одной фотографии за запрос, и перечитывать весь набор ради
+        одной новой незачем.
+        """
+        next_order = (
+            self.session.query(SellerProductPhoto)
+            .filter(SellerProductPhoto.seller_product_id == seller_product_id)
+            .count()
+        )
+        self.session.add(
+            SellerProductPhoto(
+                seller_product_id=seller_product_id, photo_id=photo_id, sort_order=next_order
+            )
+        )
+        self.session.flush()
+        return next_order
+
     def list_photo_ids(self, seller_product_id: int) -> list[int]:
         rows = (
             self.session.query(SellerProductPhoto.photo_id)
