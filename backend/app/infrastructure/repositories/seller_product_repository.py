@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.infrastructure.models import Product, SellerProduct
+from app.infrastructure.models import Product, ProductGroup, SellerProduct
 from app.infrastructure.repositories.name_search import LIKE_ESCAPE, name_search_patterns
 
 
@@ -69,10 +69,15 @@ class SellerProductRepository:
         query = (
             self.session.query(SellerProduct)
             .join(Product, Product.id == SellerProduct.product_id)
+            .join(ProductGroup, ProductGroup.id == Product.product_group_id)
             .filter(
                 SellerProduct.seller_id == seller_id,
                 SellerProduct.is_published.is_(True),
                 Product.is_active.is_(True),
+                # Снятая с работы категория прячет предложение так же, как
+                # снятая позиция справочника — то же правило, что в
+                # ProductRepository.list_active.
+                ProductGroup.is_active.is_(True),
             )
         )
         if group_ids is not None:

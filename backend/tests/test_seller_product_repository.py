@@ -10,8 +10,11 @@ def insert_seller(session, *, name: str) -> int:
     return result.lastrowid
 
 
-def insert_product_group(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+def insert_product_group(session, *, name: str, is_active: bool = True) -> int:
+    return session.execute(
+        text("INSERT INTO ProductGroup (name, is_active) VALUES (:name, :is_active)"),
+        {"name": name, "is_active": is_active},
+    ).lastrowid
 
 
 def insert_product(session, *, group_id: int, name: str) -> int:
@@ -213,3 +216,26 @@ def test_list_visible_for_seller_search_treats_percent_as_a_character(session):
     )
 
     assert repository.list_visible_for_seller(seller_id, search="%") == []
+
+
+def test_list_visible_for_seller_hides_offer_of_inactive_group(session):
+    """Снятая с работы категория прячет предложение продавца.
+
+    Правило то же, что у снятой позиции справочника, и такое же, как в общем
+    каталоге (`ProductRepository.list_active`). Сам `SellerProduct` при этом
+    остаётся — деактивация категории не трогает каталог продавца, только его
+    видимость покупателю.
+    """
+    seller_id = insert_seller(session, name="Продавец скрытой категории")
+    hidden_group = insert_product_group(session, name="Скрытая категория продавца", is_active=False)
+    product_id = insert_product(session, group_id=hidden_group, name="Товар скрытой категории продавца")
+    repository = SellerProductRepository(session)
+    offer = repository.create(
+        seller_id=seller_id, product_id=product_id, seller_name="Своё имя скрытой категории",
+        price=10, stock=1, unit="кг", description=None, is_published=True,
+    )
+
+    visible = {o.id for o in repository.list_visible_for_seller(seller_id)}
+
+    assert offer.id not in visible
+    assert repository.find_by_id(offer.id) is not None

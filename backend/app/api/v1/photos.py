@@ -18,6 +18,24 @@ _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 
+def _looks_like_declared_image(content_type: str, data: bytes) -> bool:
+    """Совпадает ли содержимое файла с заявленным Content-Type.
+
+    Проверяется сигнатура — первые байты формата. Заголовку запроса верить
+    нельзя: переименованный .pdf или оборванная закачка приезжают как
+    `image/jpeg` и до этой проверки уходили в S3, а ломались уже у покупателя,
+    когда браузер не мог отрисовать картинку. Полноценный разбор изображения
+    (Pillow) для этого не нужен и притащил бы зависимость ради одной проверки.
+    """
+    if content_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if content_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return False
+
+
 def get_photo_storage():
     """Переопределяется в тестах фейковым S3-клиентом. По умолчанию `None` —
     endpoint строит настоящий PhotoStorage (см. upload_photo ниже), тот же
@@ -42,13 +60,19 @@ def upload_photo(
         return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
 
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
-        return error_response(422, "UNSUPPORTED_CONTENT_TYPE", f"Недопустимый тип файла '{file.content_type}'")
+        return error_response(415, "UNSUPPORTED_CONTENT_TYPE", f"Недопустимый тип файла '{file.content_type}'")
 
     # Читаем не больше лимита + 1 байт, чтобы никогда не держать в памяти
     # произвольно большое тело запроса до проверки размера.
     file_bytes = file.file.read(_MAX_FILE_SIZE_BYTES + 1)
     if len(file_bytes) > _MAX_FILE_SIZE_BYTES:
         return error_response(413, "FILE_TOO_LARGE", "Файл превышает допустимый размер 10 МБ")
+
+    # Размер проверяется раньше содержимого: обрезанный гигантский файл — это
+    # прежде всего превышение лимита, и ответ не должен зависеть от того, успел
+    # ли в него попасть заголовок формата.
+    if not _looks_like_declared_image(file.content_type, file_bytes):
+        return error_response(422, "INVALID_IMAGE_PAYLOAD", f"Содержимое файла не является '{file.content_type}'")
 
     photo_storage = (
         storage

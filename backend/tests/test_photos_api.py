@@ -29,6 +29,9 @@ def override_storage():
     return fake_client
 
 
+JPEG = b"\xff\xd8\xff" + b"body"  # сигнатура формата: без неё загрузка отвечает 422
+
+
 def override_session(session):
     from app.infrastructure.database import get_session
 
@@ -46,7 +49,7 @@ def test_upload_photo_returns_201_with_photo_id(committing_session):
     response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(JPEG), "image/jpeg")},
     )
 
     app.dependency_overrides.clear()
@@ -66,7 +69,7 @@ def test_upload_photo_persists_seller_id(committing_session):
     response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(JPEG), "image/jpeg")},
     )
 
     photo_id = response.json()["photo_id"]
@@ -85,7 +88,7 @@ def test_upload_photo_with_invalid_token_returns_403(committing_session):
     response = client.post(
         "/api/v1/photos",
         data={"access_token": "not-a-real-token"},
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(JPEG), "image/jpeg")},
     )
 
     app.dependency_overrides.clear()
@@ -93,7 +96,7 @@ def test_upload_photo_with_invalid_token_returns_403(committing_session):
     assert response.json()["error"]["code"] == "SELLER_ACCESS_DENIED"
 
 
-def test_upload_photo_with_unsupported_content_type_returns_422(committing_session):
+def test_upload_photo_with_unsupported_content_type_returns_415(committing_session):
     from fastapi.testclient import TestClient
 
     override_session(committing_session)
@@ -108,8 +111,52 @@ def test_upload_photo_with_unsupported_content_type_returns_422(committing_sessi
     )
 
     app.dependency_overrides.clear()
-    assert response.status_code == 422
+    assert response.status_code == 415
     assert response.json()["error"]["code"] == "UNSUPPORTED_CONTENT_TYPE"
+
+
+def test_upload_photo_with_content_not_matching_declared_type_returns_422(committing_session):
+    """Заявленный тип не совпадает с содержимым: переименованный PDF.
+
+    Проверка идёт по сигнатуре формата — до неё такой файл уезжал в S3 и
+    ломался у покупателя в браузере, а не на загрузке.
+    """
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=1, published_by=1)
+    override_storage()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/photos",
+        data={"access_token": VALID_TOKEN},
+        files={"file": ("photo.jpg", io.BytesIO(b"%PDF-1.4 not really an image"), "image/jpeg")},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_IMAGE_PAYLOAD"
+
+
+def test_upload_photo_with_truncated_image_returns_422(committing_session):
+    """Оборванная закачка: файл начинается не с сигнатуры, а с её середины."""
+    from fastapi.testclient import TestClient
+
+    override_session(committing_session)
+    override_seller_access(seller_id=1, published_by=1)
+    override_storage()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/photos",
+        data={"access_token": VALID_TOKEN},
+        files={"file": ("photo.png", io.BytesIO(b"NG\r\n\x1a\n" + b"tail"), "image/png")},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_IMAGE_PAYLOAD"
 
 
 def test_upload_photo_over_size_limit_returns_413(committing_session):
@@ -120,7 +167,7 @@ def test_upload_photo_over_size_limit_returns_413(committing_session):
     override_storage()
     client = TestClient(app)
 
-    oversized = b"x" * (10 * 1024 * 1024 + 1)
+    oversized = JPEG + b"x" * (10 * 1024 * 1024 + 1 - len(JPEG))
     response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
@@ -140,7 +187,7 @@ def test_upload_photo_at_exact_size_limit_succeeds(committing_session):
     override_storage()
     client = TestClient(app)
 
-    exact = b"x" * (10 * 1024 * 1024)
+    exact = JPEG + b"x" * (10 * 1024 * 1024 - len(JPEG))
     response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
@@ -169,7 +216,7 @@ def test_upload_photo_storage_failure_returns_500(committing_session):
     response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(JPEG), "image/jpeg")},
     )
 
     app.dependency_overrides.clear()
@@ -188,7 +235,7 @@ def test_list_photos_returns_urls_for_own_photos(committing_session):
     upload_response = client.post(
         "/api/v1/photos",
         data={"access_token": VALID_TOKEN},
-        files={"file": ("photo.jpg", io.BytesIO(b"fake-bytes"), "image/jpeg")},
+        files={"file": ("photo.jpg", io.BytesIO(JPEG), "image/jpeg")},
     )
     photo_id = upload_response.json()["photo_id"]
 
@@ -217,7 +264,7 @@ def test_list_photos_omits_other_sellers_photos(committing_session):
     other_photo = client.post(
         "/api/v1/photos",
         data={"access_token": "token-b"},
-        files={"file": ("b.jpg", io.BytesIO(b"b"), "image/jpeg")},
+        files={"file": ("b.jpg", io.BytesIO(JPEG), "image/jpeg")},
     ).json()["photo_id"]
 
     response = client.get(f"/api/v1/photos?ids={other_photo}&access_token=token-a")

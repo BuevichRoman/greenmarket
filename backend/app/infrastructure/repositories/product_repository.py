@@ -35,7 +35,15 @@ class ProductRepository:
         `ProductGroupRepository.expand_subtrees`): здесь это просто список
         групп, любая из которых подходит. Пустой список означает «ни одна
         группа не подходит» и отличается от `None` — «фильтра нет»."""
-        query = self.session.query(Product).filter(Product.is_active.is_(True))
+        # Товар невидим и тогда, когда снята с работы его категория: скрытая
+        # группа уже исчезает из дерева `GET /catalog/groups`, и оставлять её
+        # товары в плоском списке значило бы показывать покупателю товар
+        # категории, которой для него не существует.
+        query = (
+            self.session.query(Product)
+            .join(ProductGroup, ProductGroup.id == Product.product_group_id)
+            .filter(Product.is_active.is_(True), ProductGroup.is_active.is_(True))
+        )
         if group_ids is not None:
             query = query.filter(Product.product_group_id.in_(group_ids))
         for pattern in name_search_patterns(search):

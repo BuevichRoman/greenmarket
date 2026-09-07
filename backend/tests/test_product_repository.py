@@ -3,8 +3,11 @@ from sqlalchemy import text
 from app.infrastructure.repositories.product_repository import ProductRepository
 
 
-def insert_product_group(session, *, name: str) -> int:
-    return session.execute(text("INSERT INTO ProductGroup (name) VALUES (:name)"), {"name": name}).lastrowid
+def insert_product_group(session, *, name: str, is_active: bool = True) -> int:
+    return session.execute(
+        text("INSERT INTO ProductGroup (name, is_active) VALUES (:name, :is_active)"),
+        {"name": name, "is_active": is_active},
+    ).lastrowid
 
 
 def insert_product(session, *, group_id: int, name: str, is_active: bool = True) -> int:
@@ -129,3 +132,18 @@ def test_list_active_search_treats_underscore_as_a_character(session):
     result = ProductRepository(session).list_active(search="К_бачок подчёркнутый")
 
     assert product_id not in {p.id for p in result}
+
+
+def test_list_active_excludes_products_of_inactive_group(session):
+    """Скрытая категория прячет и свои товары.
+
+    До этого деактивированная группа исчезала только из дерева
+    `GET /catalog/groups`, а её товары продолжали лежать в плоском списке
+    каталога — покупатель видел товар категории, которой для него нет.
+    """
+    hidden_group = insert_product_group(session, name="Скрытая группа list_active", is_active=False)
+    insert_product(session, group_id=hidden_group, name="Товар скрытой группы list_active")
+
+    names = [product.name for product in ProductRepository(session).list_active()]
+
+    assert "Товар скрытой группы list_active" not in names
