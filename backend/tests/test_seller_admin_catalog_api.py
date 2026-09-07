@@ -516,3 +516,33 @@ def test_uploaded_photo_appears_in_product_detail(committing_session):
 
     app.dependency_overrides.clear()
     assert len(detail["photos"]) == 1
+
+
+def test_end_to_end_seller_admin_flow_without_google_sheets(committing_session):
+    """Главный критерий ТЗ: товар доходит до покупателя без рабочей книги.
+
+    создать позицию → загрузить фото → опубликовать → видно в публичном каталоге
+    """
+    from app.infrastructure.repositories.seller_product_repository import SellerProductRepository as Repo
+
+    seller_id = insert_seller(committing_session, name="Ферма сквозного сценария")
+    user_id = insert_user(committing_session, name="Пользователь сквозного сценария")
+    group_id = insert_group(committing_session, name="Группа сквозного сценария")
+    product_id = insert_product(committing_session, group_id=group_id, name="Позиция сквозного сценария")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+
+    created = client.post(
+        "/api/v1/seller/products", json={**NEW_PRODUCT, "product_id": product_id}, headers=AUTH
+    ).json()
+    assert created["is_published"] is False
+
+    upload(client, created["id"])
+    published = client.post("/api/v1/seller/catalog/publish", headers=AUTH)
+
+    app.dependency_overrides.clear()
+    assert published.status_code == 200
+    assert published.json()["updated"] == 1
+
+    visible = Repo(committing_session).list_visible_for_seller(seller_id)
+    assert [row.id for row in visible] == [created["id"]]
