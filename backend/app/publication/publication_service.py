@@ -1,6 +1,5 @@
 import logging
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.models import SellerProduct
@@ -14,7 +13,9 @@ from app.infrastructure.repositories.seller_product_repository import (
 )
 from app.mapping.publication_model import PublicationModel, PublicationProduct
 from app.platform.seller_gateway import SellerGateway
-from app.publication.errors import DuplicatePublicationError, PublicationConflictError
+from app.publication.catalog_change import CatalogChange
+from app.publication.catalog_publication_service import CatalogPublicationService
+from app.publication.errors import PublicationConflictError
 from app.publication.publication_result import PublicationResult
 
 _OTHER_PRODUCT_PLACEHOLDER = "Прочее"
@@ -23,10 +24,16 @@ logger = logging.getLogger(__name__)
 
 
 class PublicationService:
-    """Транзакционно применяет провалидированную и промапленную PublicationModel
-    к базе данных GreenMarket — создаёт/обновляет SellerProduct, деактивирует
-    пропавшие товары, ведёт журнал публикаций (CatalogPublication) и служебные
-    данные продавца (Seller.current_publication_key/current_catalog_hash).
+    """Путь публикации из рабочей книги: применяет провалидированную и
+    промапленную PublicationModel к базе GreenMarket — создаёт и обновляет
+    SellerProduct, деактивирует пропавшие из книги товары.
+
+    Здесь остаётся только то, что специфично для книги: сопоставление
+    присланных строк с существующими и деактивация тех, которых во входном
+    наборе больше нет. Общая механика публикации — версия, CatalogPublication,
+    текущее состояние продавца, транзакция — вынесена в
+    CatalogPublicationService и одинакова для всех входов в каталог
+    (ТЗ Seller Catalog API, раздел 9).
 
     Не читает Excel, не валидирует документ — предполагает, что Validator и
     Mapper уже успешно отработали (задание PR-006, kwork/timeline.md).
@@ -49,81 +56,39 @@ class PublicationService:
         self.product_group_repository = product_group_repository
         self.catalog_publication_repository = catalog_publication_repository
         self.seller_product_photo_repository = seller_product_photo_repository
+        self.catalog_publication_service = CatalogPublicationService(
+            session=session,
+            seller_gateway=seller_gateway,
+            catalog_publication_repository=catalog_publication_repository,
+            path_logger=logger,
+        )
 
     def publish(
         self, model: PublicationModel, published_by: int, *, publication_key: str, catalog_hash: str, mode: str = "prod"
     ) -> PublicationResult:
         seller_id = model.metadata.seller_id
 
-        logger.info("Публикация начата: seller_id=%s publication_key=%s", seller_id, publication_key)
-
-        try:
-            if self.catalog_publication_repository.exists_with_key(publication_key):
-                raise DuplicatePublicationError(
-                    f"PublicationKey '{publication_key}' уже был использован в предыдущей публикации"
-                )
-
-            current_hash = self.seller_gateway.get_current_catalog_hash(seller_id)
-            catalog_unchanged = current_hash is not None and catalog_hash == current_hash
-
-            created = updated = deactivated = 0
-            if not catalog_unchanged:
-                created, updated, deactivated = self._apply_catalog(model.products, seller_id)
-
+        def hidden_no_photo() -> list[str]:
             # Считаем по входной книге, а не внутри _apply_catalog: продавец должен
             # видеть список скрытых товаров и при повторной публикации без изменений,
             # когда _apply_catalog вообще не вызывается.
-            hidden_no_photo = [product.seller_name for product in model.products if not product.photo_ids]
+            return [product.seller_name for product in model.products if not product.photo_ids]
 
-            new_version = self.catalog_publication_repository.latest_version(seller_id) + 1
-            publication = self.catalog_publication_repository.create(
-                seller_id=seller_id,
-                version=new_version,
-                publication_key=publication_key,
-                catalog_hash=catalog_hash,
-                published_by=published_by,
-                created_count=created,
-                updated_count=updated,
-                deactivated_count=deactivated,
-            )
-            self.seller_gateway.update_current_publication(
-                seller_id, publication_key=publication_key, catalog_hash=catalog_hash, catalog_version=new_version
+        def apply_catalog() -> CatalogChange:
+            created, updated, deactivated = self._apply_catalog(model.products, seller_id)
+            return CatalogChange(
+                created=created, updated=updated, deactivated=deactivated, hidden_no_photo=hidden_no_photo()
             )
 
-            self.session.commit()
-            logger.info(
-                "Публикация завершена: seller_id=%s publication_key=%s created=%s updated=%s deactivated=%s",
-                seller_id, publication_key, created, updated, deactivated,
-            )
-            return PublicationResult(
-                success=True,
-                publication_id=publication.id,
-                created_count=created,
-                updated_count=updated,
-                deactivated_count=deactivated,
-                publication_key=publication_key,
-                catalog_hash=catalog_hash,
-                mode=mode,
-                hidden_no_photo=hidden_no_photo,
-            )
-        except IntegrityError as exc:
-            self.session.rollback()
-            if "uk_CatalogPublication_key" not in str(exc.orig):
-                # Не гонка по publication_key (например FK на published_by/seller_id
-                # или UNIQUE(seller_id, version)) — пробрасываем как есть, не
-                # маскируем под DuplicatePublicationError.
-                logger.warning("Публикация отклонена (ошибка целостности данных): seller_id=%s publication_key=%s error=%s", seller_id, publication_key, exc)
-                raise
-            # UNIQUE(publication_key) на CatalogPublication — гонка между
-            # exists_with_key() и собственным INSERT (два publish() с одним
-            # ключом одновременно). PublicationService по контракту
-            # пробрасывает только собственные ошибки.
-            logger.warning("Публикация отклонена (гонка PublicationKey): seller_id=%s publication_key=%s error=%s", seller_id, publication_key, exc)
-            raise DuplicatePublicationError(f"PublicationKey '{publication_key}' уже используется (конфликт при записи)") from exc
-        except Exception as exc:
-            self.session.rollback()
-            logger.warning("Публикация отклонена: seller_id=%s publication_key=%s error=%s", seller_id, publication_key, exc)
-            raise
+        return self.catalog_publication_service.publish(
+            seller_id,
+            published_by,
+            publication_key=publication_key,
+            catalog_hash=catalog_hash,
+            mode=mode,
+            apply_catalog=apply_catalog,
+            describe_unchanged=lambda: CatalogChange(hidden_no_photo=hidden_no_photo()),
+        )
 
     def _apply_catalog(self, products: list[PublicationProduct], seller_id: int) -> tuple[int, int, int]:
         existing_rows = self.seller_product_repository.list_by_seller(seller_id)
