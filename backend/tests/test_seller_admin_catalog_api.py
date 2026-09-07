@@ -209,3 +209,162 @@ def test_product_groups_omit_inactive(committing_session):
     app.dependency_overrides.clear()
     assert response.status_code == 200
     assert hidden not in [group["id"] for group in response.json()["items"]]
+
+
+# ── Запись ───────────────────────────────────────────────────────────────────
+
+NEW_PRODUCT = {"seller_name": "Новый товар", "price": "250.00", "stock": "12.500", "unit": "кг"}
+
+
+def test_create_product_returns_201_and_stays_hidden(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма создания API")
+    user_id = insert_user(committing_session, name="Пользователь создания API")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.post("/api/v1/seller/products", json=NEW_PRODUCT, headers=AUTH)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_published"] is False
+    assert body["moderation_status"] == "WAIT_PRODUCT"
+    assert body["photos"] == []
+
+
+def test_create_product_rejects_fields_the_seller_must_not_set(committing_session):
+    """ТЗ перечисляет поля, которые от клиента не принимаются. Они просто не
+    описаны в схеме, а лишние ключи запрещены — попытка даёт 422."""
+    seller_id = insert_seller(committing_session, name="Ферма запрещённых полей")
+    user_id = insert_user(committing_session, name="Пользователь запрещённых полей")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.post(
+        "/api/v1/seller/products", json={**NEW_PRODUCT, "is_published": True}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def test_create_product_rejects_negative_price(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма отрицательной цены")
+    user_id = insert_user(committing_session, name="Пользователь отрицательной цены")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.post(
+        "/api/v1/seller/products", json={**NEW_PRODUCT, "price": "-1"}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def test_create_product_rejects_inactive_product_id(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма снятой позиции API")
+    user_id = insert_user(committing_session, name="Пользователь снятой позиции API")
+    group_id = insert_group(committing_session, name="Группа снятой позиции API")
+    inactive = insert_product(committing_session, group_id=group_id, name="Снятая позиция API", is_active=False)
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.post(
+        "/api/v1/seller/products", json={**NEW_PRODUCT, "product_id": inactive}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def test_patch_product_saves_only_given_field(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма правки API")
+    user_id = insert_user(committing_session, name="Пользователь правки API")
+    offer = add_offer(committing_session, seller_id, name="Товар правки API", price=100)
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}", json={"price": "777.00"}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["price"] == "777.00"
+    assert body["seller_name"] == "Товар правки API"
+
+
+def test_patch_selecting_product_resolves_moderation(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма выбора позиции API")
+    user_id = insert_user(committing_session, name="Пользователь выбора позиции API")
+    group_id = insert_group(committing_session, name="Группа выбора позиции API")
+    product_id = insert_product(committing_session, group_id=group_id, name="Позиция выбора API")
+    offer = add_offer(committing_session, seller_id, name="Товар выбора позиции API")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}", json={"product_id": product_id}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    body = response.json()
+    assert body["moderation_status"] == "RESOLVED"
+    assert body["product_group_id"] == group_id
+
+
+def test_patch_cannot_clear_seller_name(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма очистки имени")
+    user_id = insert_user(committing_session, name="Пользователь очистки имени")
+    offer = add_offer(committing_session, seller_id, name="Товар очистки имени")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}", json={"seller_name": None}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def test_patch_cannot_publish_product(committing_session):
+    """Витрина меняется публикацией, а не сохранением карточки."""
+    seller_id = insert_seller(committing_session, name="Ферма самопубликации")
+    user_id = insert_user(committing_session, name="Пользователь самопубликации")
+    offer = add_offer(committing_session, seller_id, name="Товар самопубликации")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}", json={"is_published": True}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def test_patch_foreign_product_is_not_found(committing_session):
+    mine = insert_seller(committing_session, name="Ферма своя правка API")
+    theirs = insert_seller(committing_session, name="Ферма чужая правка API")
+    user_id = insert_user(committing_session, name="Пользователь чужой правки API")
+    foreign = add_offer(committing_session, theirs, name="Чужой товар правки API")
+    client = client_for(committing_session, mine, user_id)
+
+    response = client.patch(f"/api/v1/seller/products/{foreign.id}", json={"price": "1"}, headers=AUTH)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+
+def test_patch_duplicate_sku_returns_409(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма дубля артикула API")
+    user_id = insert_user(committing_session, name="Пользователь дубля артикула API")
+    taken = f"SKU-{uuid.uuid4().hex[:8]}"
+    client = client_for(committing_session, seller_id, user_id)
+    client.post("/api/v1/seller/products", json={**NEW_PRODUCT, "seller_sku": taken}, headers=AUTH)
+    other = client.post(
+        "/api/v1/seller/products", json={**NEW_PRODUCT, "seller_sku": f"SKU-{uuid.uuid4().hex[:8]}"}, headers=AUTH
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/seller/products/{other['id']}", json={"seller_sku": taken}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SELLER_SKU_ALREADY_EXISTS"

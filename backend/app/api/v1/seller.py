@@ -12,6 +12,8 @@ from app.api.v1.seller_catalog_schemas import (
     SellerCatalogListResponse,
     SellerProductGroupListResponse,
     SellerProductGroupOption,
+    SellerProductCreateRequest,
+    SellerProductUpdateRequest,
 )
 from app.api.v1.seller_schemas import (
     MarketListResponse,
@@ -22,6 +24,12 @@ from app.api.v1.seller_schemas import (
     SellerProfileUpdateRequest,
     SellerProfileUpdateResponse,
     SellerStatusResponse,
+)
+from app.application.seller_catalog_use_case import (
+    DuplicateSellerSkuError,
+    ProductNotSelectableError,
+    SellerCatalogUseCase,
+    SellerProductNotFoundError,
 )
 from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
@@ -348,19 +356,10 @@ def get_seller_product(
     if access is None:
         return seller_access_denied()
 
-    found = SellerProductRepository(session).find_for_seller_admin(access.seller_id, seller_product_id)
-    if found is None:
+    detail = _detail_or_none(session, access.seller_id, seller_product_id)
+    if detail is None:
         return error_response(404, "SELLER_PRODUCT_NOT_FOUND", "Позиция каталога не найдена")
-
-    row, product, group = found
-    keys = PhotoGateway(session).list_by_seller_products([row.id]).get(row.id, [])
-    photos = [
-        build_photo_url(
-            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
-        )
-        for key in keys
-    ]
-    return SellerCatalogDetail(**_catalog_item_fields(row, product, group), photos=photos)
+    return detail
 
 
 @router.get("/product-groups", response_model=SellerProductGroupListResponse)
@@ -381,3 +380,79 @@ def list_seller_product_groups(
             for group in ProductGroupRepository(session).list_active()
         ]
     )
+
+
+def _detail_or_none(session: Session, seller_id: int, seller_product_id: int) -> SellerCatalogDetail | None:
+    """Карточка перечитывается из базы, а не собирается из тела запроса: так
+    ответ на создание и на правку описывает действительное состояние строки,
+    включая выведенный статус модерации."""
+    found = SellerProductRepository(session).find_for_seller_admin(seller_id, seller_product_id)
+    if found is None:
+        return None
+    row, product, group = found
+    keys = PhotoGateway(session).list_by_seller_products([row.id]).get(row.id, [])
+    photos = [
+        build_photo_url(
+            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        )
+        for key in keys
+    ]
+    return SellerCatalogDetail(**_catalog_item_fields(row, product, group), photos=photos)
+
+
+@router.post("/products", response_model=SellerCatalogDetail, status_code=201)
+def create_seller_product(
+    request: SellerProductCreateRequest,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SellerCatalogDetail | JSONResponse:
+    """Завести позицию в каталоге продавца.
+
+    Статус модерации не принимается и не выбирается — он выводится из товарной
+    позиции: выбрана существующая активная позиция значит RESOLVED, не выбрана
+    — WAIT_PRODUCT. На витрину новая позиция сама не выходит.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    try:
+        created = SellerCatalogUseCase(session).create(access.seller_id, request.model_dump())
+    except ProductNotSelectableError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
+    except DuplicateSellerSkuError as exc:
+        return error_response(409, "SELLER_SKU_ALREADY_EXISTS", str(exc))
+
+    session.commit()
+    return _detail_or_none(session, access.seller_id, created.id)
+
+
+@router.patch("/products/{seller_product_id}", response_model=SellerCatalogDetail)
+def update_seller_product(
+    seller_product_id: int,
+    request: SellerProductUpdateRequest,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SellerCatalogDetail | JSONResponse:
+    """Частичное изменение позиции: правятся только присланные ключи.
+
+    Видимость этим запросом не меняется — товар выходит на витрину публикацией,
+    а не сохранением карточки.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    nulled = request.nulled_non_nullable()
+    if nulled:
+        return error_response(422, "VALIDATION_ERROR", f"Поля нельзя очистить: {', '.join(nulled)}")
+
+    try:
+        updated = SellerCatalogUseCase(session).update(access.seller_id, seller_product_id, request.changes())
+    except SellerProductNotFoundError:
+        return error_response(404, "SELLER_PRODUCT_NOT_FOUND", "Позиция каталога не найдена")
+    except ProductNotSelectableError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
+    except DuplicateSellerSkuError as exc:
+        return error_response(409, "SELLER_SKU_ALREADY_EXISTS", str(exc))
+
+    session.commit()
+    return _detail_or_none(session, access.seller_id, updated.id)

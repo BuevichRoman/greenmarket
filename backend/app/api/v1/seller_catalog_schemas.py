@@ -1,7 +1,9 @@
+from typing import ClassVar
+
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SellerCatalogItem(BaseModel):
@@ -64,3 +66,56 @@ class ProductSuggestion(BaseModel):
 
 class ProductSuggestListResponse(BaseModel):
     items: list[ProductSuggestion]
+
+
+class SellerProductCreateRequest(BaseModel):
+    """Тело POST /seller/products.
+
+    Лишние ключи запрещены: молчаливое игнорирование опечатки в имени поля
+    неотличимо от успешного сохранения. Заодно это и есть отказ принимать от
+    клиента `seller_id`, `is_published` и поля модерации — они просто не
+    описаны, и любая попытка их прислать даёт 422.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    seller_name: str
+    price: Decimal = Field(ge=0)
+    stock: Decimal = Field(ge=0)
+    unit: str
+    product_id: int | None = None
+    description: str | None = None
+    origin_country: str | None = None
+    supply_date: date | None = None
+    seller_sku: str | None = None
+
+
+class SellerProductUpdateRequest(BaseModel):
+    """Тело PATCH /seller/products/{id} — частичное изменение.
+
+    Отсутствие ключа означает «не трогать», явный `null` — очистить поле.
+    Различить эти два случая позволяет `model_fields_set`, поэтому у всех полей
+    один и тот же дефолт `None`, а не разные заглушки.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    seller_name: str | None = None
+    price: Decimal | None = Field(default=None, ge=0)
+    stock: Decimal | None = Field(default=None, ge=0)
+    unit: str | None = None
+    product_id: int | None = None
+    description: str | None = None
+    origin_country: str | None = None
+    supply_date: date | None = None
+    seller_sku: str | None = None
+
+    # Обнулить эти поля нечем: у товара всегда есть наименование, цена, остаток
+    # и единица измерения. Явный null в них — ошибка клиента, а не очистка.
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("seller_name", "price", "stock", "unit")
+
+    def changes(self) -> dict:
+        return {name: getattr(self, name) for name in self.model_fields_set}
+
+    def nulled_non_nullable(self) -> list[str]:
+        return [name for name in self.NOT_NULLABLE if name in self.model_fields_set and getattr(self, name) is None]
