@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.publications import get_seller_access_resolver
-from app.api.v1.schemas import error_response
+from app.api.v1.schemas import PublicationResponse, error_response
 from app.api.v1.seller_schemas import (
     MarketListResponse,
     MarketOption,
@@ -21,9 +21,37 @@ from app.infrastructure.repositories.seller_product_repository import SellerProd
 from app.platform.seller_gateway import SellerGateway
 from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
+from app.infrastructure.repositories.seller_product_photo_repository import SellerProductPhotoRepository
+from app.publication.seller_access import SellerAccess, resolve_seller_access
 from app.publication.seller_activation import activate_seller
+from app.publication.seller_catalog_publisher import SellerCatalogPublisher
 
 router = APIRouter(prefix="/api/v1/seller", tags=["seller"])
+
+_BEARER_PREFIX = "bearer "
+
+
+def get_seller_bearer_access(
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_session),
+) -> SellerAccess | None:
+    """Продавец из заголовка `Authorization: Bearer <token>`.
+
+    Новый контур Seller Catalog API токен в query-строке не принимает: она
+    целиком попадает в access.log nginx. Прежние эндпоинты раздела оставлены
+    как есть — их клиенты (Apps Script, Seller Cabinet) переводятся на
+    заголовок отдельной задачей.
+    """
+    if authorization is None or not authorization.lower().startswith(_BEARER_PREFIX):
+        return None
+    return resolve_seller_access(authorization[len(_BEARER_PREFIX):].strip(), session)
+
+
+def seller_access_denied() -> JSONResponse:
+    # 401, а не 403 как в прежних эндпоинтах раздела: с Bearer запрос без
+    # действительного заголовка не аутентифицирован, а не «аутентифицирован, но
+    # не имеет прав» (ТЗ Seller Catalog API, раздел 10).
+    return error_response(401, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
 
 
 @router.get("/catalog", response_model=SellerStatusResponse)
@@ -143,3 +171,38 @@ def update_seller_profile(
 
     session.commit()
     return SellerProfileUpdateResponse(changed=changed)
+
+
+@router.post("/catalog/publish", response_model=PublicationResponse)
+def publish_catalog(
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> PublicationResponse | JSONResponse:
+    """Публикация текущего состояния каталога продавца.
+
+    Тела у запроса нет: публикуется то, что уже лежит в каталоге, а правки
+    приходят раньше — отдельными запросами. Отсутствие товара в запросе не
+    означает и не может означать снятие с витрины (ТЗ, раздел 8).
+    """
+    if access is None:
+        return seller_access_denied()
+
+    publisher = SellerCatalogPublisher(
+        session=session,
+        seller_gateway=SellerGateway(session),
+        seller_product_repository=SellerProductRepository(session),
+        seller_product_photo_repository=SellerProductPhotoRepository(session),
+        catalog_publication_repository=CatalogPublicationRepository(session),
+    )
+    result = publisher.publish(access.seller_id, published_by=access.published_by)
+
+    return PublicationResponse(
+        success=True,
+        publication_id=result.publication_id,
+        created=result.created_count,
+        updated=result.updated_count,
+        deactivated=result.deactivated_count,
+        message="Каталог опубликован",
+        mode=result.mode,
+        hidden_no_photo=result.hidden_no_photo,
+    )
