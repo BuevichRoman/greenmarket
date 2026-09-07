@@ -1,9 +1,18 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.publications import get_seller_access_resolver
 from app.api.v1.schemas import PublicationResponse, error_response
+from app.api.v1.seller_catalog_schemas import (
+    ProductSuggestion,
+    ProductSuggestListResponse,
+    SellerCatalogDetail,
+    SellerCatalogItem,
+    SellerCatalogListResponse,
+    SellerProductGroupListResponse,
+    SellerProductGroupOption,
+)
 from app.api.v1.seller_schemas import (
     MarketListResponse,
     MarketOption,
@@ -16,8 +25,16 @@ from app.api.v1.seller_schemas import (
 )
 from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
+from app.core.config import settings
 from app.infrastructure.repositories.market_repository import MarketRepository
-from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
+from app.infrastructure.repositories.product_group_repository import ProductGroupRepository
+from app.infrastructure.repositories.product_repository import ProductRepository
+from app.infrastructure.repositories.seller_product_repository import (
+    SellerProductRepository,
+    UnknownSortFieldError,
+)
+from app.platform.photo_gateway import PhotoGateway
+from app.platform.photo_storage import build_photo_url
 from app.platform.seller_gateway import SellerGateway
 from app.profile.errors import ProfileValidationError, SellerNotFoundError
 from app.profile.seller_profile_service import SellerProfileService
@@ -205,4 +222,162 @@ def publish_catalog(
         message="Каталог опубликован",
         mode=result.mode,
         hidden_no_photo=result.hidden_no_photo,
+    )
+
+
+_MAX_PAGE_SIZE = 100
+_MAX_SUGGEST_LIMIT = 50
+
+
+def _catalog_item_fields(row, product, group) -> dict:
+    return {
+        "id": row.id,
+        "product_id": row.product_id,
+        # Эталонного имени и категории у несопоставленной позиции не
+        # существует — отдаём пусто, а не выдуманную заглушку.
+        "product_name": product.name if product is not None else None,
+        "product_group_id": group.id if group is not None else None,
+        "product_group_name": group.name if group is not None else None,
+        "seller_name": row.seller_name,
+        "price": row.price,
+        "stock": row.stock,
+        "unit": row.unit,
+        "description": row.description,
+        "origin_country": row.origin_country,
+        "supply_date": row.supply_date,
+        "seller_sku": row.seller_sku,
+        "is_published": bool(row.is_published),
+        "moderation_status": row.moderation_status,
+        "updated_at": row.updated_at,
+    }
+
+
+def _resolve_group_ids(product_group_id: int | None, session: Session) -> list[int] | None:
+    """Категория означает ветку целиком — то же правило, что в каталоге
+    покупателя: товары висят и на листьях, и на корнях."""
+    if product_group_id is None:
+        return None
+    subtrees = ProductGroupRepository(session).subtree_ids_by_group([product_group_id])
+    return subtrees.get(product_group_id, [product_group_id])
+
+
+@router.get("/products", response_model=SellerCatalogListResponse)
+def list_seller_products(
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
+    search: str | None = None,
+    product_group_id: int | None = None,
+    is_published: bool | None = None,
+    moderation_status: str | None = None,
+    sort: str | None = None,
+) -> SellerCatalogListResponse | JSONResponse:
+    """Каталог продавца целиком — включая непромодерированное и снятое с витрины.
+
+    Это не покупательская выборка: продавцу нужно видеть и то, чего покупатель
+    не видит, иначе позиция, ожидающая модерации, для него просто исчезает.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    try:
+        rows, total = SellerProductRepository(session).list_for_seller_admin(
+            access.seller_id,
+            page=page,
+            page_size=page_size,
+            search=search,
+            group_ids=_resolve_group_ids(product_group_id, session),
+            is_published=is_published,
+            moderation_status=moderation_status,
+            sort=sort,
+        )
+    except UnknownSortFieldError as exc:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
+
+    return SellerCatalogListResponse(
+        items=[SellerCatalogItem(**_catalog_item_fields(row, product, group)) for row, product, group in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/products/suggest", response_model=ProductSuggestListResponse)
+def suggest_products(
+    q: str,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+    product_group_id: int | None = None,
+    limit: int = Query(default=20, ge=1, le=_MAX_SUGGEST_LIMIT),
+) -> ProductSuggestListResponse | JSONResponse:
+    """Позиции справочника для выбора товарной позиции.
+
+    Объявлен раньше `/products/{seller_product_id}`: иначе «suggest» уехало бы
+    в путь как идентификатор и вернуло бы 422 вместо подсказок.
+    """
+    if access is None:
+        return seller_access_denied()
+    if not q.strip():
+        return error_response(422, "VALIDATION_ERROR", "Параметр 'q' не может быть пустым")
+
+    found = ProductRepository(session).suggest_for_seller(
+        search=q, group_ids=_resolve_group_ids(product_group_id, session), limit=limit
+    )
+    return ProductSuggestListResponse(
+        items=[
+            ProductSuggestion(
+                id=product.id, name=product.name, product_group_id=group.id, product_group_name=group.name
+            )
+            for product, group in found
+        ]
+    )
+
+
+@router.get("/products/{seller_product_id}", response_model=SellerCatalogDetail)
+def get_seller_product(
+    seller_product_id: int,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SellerCatalogDetail | JSONResponse:
+    """Одна позиция каталога вместе с фотографиями — состав формы редактирования.
+
+    Чужая позиция неотличима от несуществующей: иначе перебором идентификаторов
+    выясняется состав чужого каталога.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    found = SellerProductRepository(session).find_for_seller_admin(access.seller_id, seller_product_id)
+    if found is None:
+        return error_response(404, "SELLER_PRODUCT_NOT_FOUND", "Позиция каталога не найдена")
+
+    row, product, group = found
+    keys = PhotoGateway(session).list_by_seller_products([row.id]).get(row.id, [])
+    photos = [
+        build_photo_url(
+            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+        )
+        for key in keys
+    ]
+    return SellerCatalogDetail(**_catalog_item_fields(row, product, group), photos=photos)
+
+
+@router.get("/product-groups", response_model=SellerProductGroupListResponse)
+def list_seller_product_groups(
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SellerProductGroupListResponse | JSONResponse:
+    """Только активные категории: снятую продавцу предлагать незачем, товар в
+    ней всё равно не станет видимым."""
+    if access is None:
+        return seller_access_denied()
+
+    return SellerProductGroupListResponse(
+        items=[
+            SellerProductGroupOption(
+                id=group.id, parent_id=group.parent_id, name=group.name, sort_order=group.sort_order
+            )
+            for group in ProductGroupRepository(session).list_active()
+        ]
     )

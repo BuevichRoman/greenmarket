@@ -19,6 +19,42 @@ def moderation_status_for(product_id: int | None) -> str:
     return "WAIT_PRODUCT" if product_id is None else "RESOLVED"
 
 
+
+SELLER_ADMIN_SORT_FIELDS = {
+    "id": SellerProduct.id,
+    "seller_name": SellerProduct.seller_name,
+    "price": SellerProduct.price,
+    "stock": SellerProduct.stock,
+    "updated_at": SellerProduct.updated_at,
+}
+
+
+class UnknownSortFieldError(ValueError):
+    """Клиент попросил сортировку по полю, которого сервер не разрешает."""
+
+
+def parse_seller_admin_sort(sort: str | None) -> tuple[object, bool]:
+    """`sort` → (колонка, по убыванию ли). Ведущий минус означает убывание.
+
+    Список полей закрыт и задан сервером: сортировка по произвольной колонке
+    открывала бы наружу и внутренние поля модерации, и порядок, который потом
+    нечем поддерживать индексами.
+
+    Без параметра — свежие первыми: продавец возвращается в каталог, чтобы
+    посмотреть то, что только что правил.
+    """
+    if not sort:
+        return SellerProduct.updated_at, True
+    descending = sort.startswith("-")
+    name = sort[1:] if descending else sort
+    column = SELLER_ADMIN_SORT_FIELDS.get(name)
+    if column is None:
+        raise UnknownSortFieldError(
+            f"Сортировка по '{name}' не поддерживается: {', '.join(sorted(SELLER_ADMIN_SORT_FIELDS))}"
+        )
+    return column, descending
+
+
 class SellerProductRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -50,6 +86,81 @@ class SellerProductRepository:
             query.order_by(SellerProduct.created_at, SellerProduct.id)
             .offset((page - 1) * limit)
             .limit(limit)
+            .all()
+        )
+        return items, total
+
+    def _seller_admin_query(self, seller_id: int):
+        """Каталог продавца со справочными данными. Join внешний: у новой
+        позиции связи со справочником нет по определению."""
+        return (
+            self.session.query(SellerProduct, Product, ProductGroup)
+            .outerjoin(Product, Product.id == SellerProduct.product_id)
+            .outerjoin(ProductGroup, ProductGroup.id == Product.product_group_id)
+            .filter(SellerProduct.seller_id == seller_id)
+        )
+
+    def find_for_seller_admin(
+        self, seller_id: int, seller_product_id: int
+    ) -> tuple[SellerProduct, "Product | None", "ProductGroup | None"] | None:
+        """Одна позиция каталога продавца — или `None`, если её нет **либо** она
+        чужая. Два случая намеренно неразличимы: иначе перебором
+        идентификаторов выясняется состав чужого каталога.
+        """
+        return self._seller_admin_query(seller_id).filter(SellerProduct.id == seller_product_id).first()
+
+    def list_for_seller_admin(
+        self,
+        seller_id: int,
+        *,
+        page: int,
+        page_size: int,
+        search: str | None = None,
+        group_ids: list[int] | None = None,
+        is_published: bool | None = None,
+        moderation_status: str | None = None,
+        sort: str | None = None,
+    ) -> tuple[list[tuple[SellerProduct, "Product | None", "ProductGroup | None"]], int]:
+        """Каталог продавца для Seller Admin — сам продавец, а не покупатель.
+
+        Отличий от покупательской выборки два, и оба принципиальные. Во-первых,
+        видно всё: непромодерированные позиции и снятые с витрины тоже, иначе
+        товар, ожидающий модерации, для продавца просто исчезал бы. Во-вторых,
+        связь со справочником необязательна — join внешний, у новой позиции
+        `product_id` пуст по определению, и эталонное имя с категорией
+        возвращаются как `None`.
+
+        Возвращает строки вместе с их позицией справочника и категорией: имя и
+        группа приходят оттуда, отдельным запросом на строку их тянуть незачем.
+        """
+        query = self._seller_admin_query(seller_id)
+        if group_ids is not None:
+            query = query.filter(Product.product_group_id.in_(group_ids))
+        if is_published is not None:
+            query = query.filter(SellerProduct.is_published.is_(is_published))
+        if moderation_status is not None:
+            query = query.filter(SellerProduct.moderation_status == moderation_status)
+        for pattern in name_search_patterns(search):
+            # Как в каталоге продавца у покупателя: слово может стоять в любом
+            # из двух имён. Строка без справочника при этом не теряется —
+            # ilike по NULL просто не совпадает.
+            query = query.filter(
+                or_(
+                    SellerProduct.seller_name.ilike(pattern, escape=LIKE_ESCAPE),
+                    Product.name.ilike(pattern, escape=LIKE_ESCAPE),
+                )
+            )
+
+        total = query.count()
+        column, descending = parse_seller_admin_sort(sort)
+        ordering = column.desc() if descending else column.asc()
+        items = (
+            # Вторым ключом всегда id: без него строки с одинаковой ценой или
+            # одинаковой меткой времени раскладываются по страницам как попало
+            # и могут показаться дважды.
+            query.order_by(ordering, SellerProduct.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
             .all()
         )
         return items, total

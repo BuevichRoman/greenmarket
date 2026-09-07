@@ -50,6 +50,28 @@ class ProductRepository:
             query = query.filter(Product.name.ilike(pattern, escape=LIKE_ESCAPE))
         return query.order_by(Product.name).all()
 
+    def suggest_for_seller(
+        self, *, search: str, group_ids: list[int] | None = None, limit: int
+    ) -> list[tuple[Product, ProductGroup]]:
+        """Позиции справочника, из которых продавец выбирает товарную позицию.
+
+        В отличие от подсказок покупателю (`CatalogUseCase.suggest_names`) здесь
+        не требуется, чтобы у позиции уже было видимое предложение: продавец как
+        раз и заводит первое. Отдаются только активные позиции активных
+        категорий — привязка к снятой позиции выглядела бы как завершённая
+        модерация, но покупателю товар всё равно не показался бы.
+        """
+        query = (
+            self.session.query(Product, ProductGroup)
+            .join(ProductGroup, ProductGroup.id == Product.product_group_id)
+            .filter(Product.is_active.is_(True), ProductGroup.is_active.is_(True))
+        )
+        if group_ids is not None:
+            query = query.filter(Product.product_group_id.in_(group_ids))
+        for pattern in name_search_patterns(search):
+            query = query.filter(Product.name.ilike(pattern, escape=LIKE_ESCAPE))
+        return query.order_by(Product.name).limit(limit).all()
+
     def list_for_admin(
         self, *, group_id: int | None, query: str | None, page: int, limit: int
     ) -> tuple[list[tuple[Product, str, int]], int]:
