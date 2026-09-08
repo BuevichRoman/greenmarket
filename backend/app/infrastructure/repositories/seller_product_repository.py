@@ -90,6 +90,21 @@ class SellerProductRepository:
         )
         return items, total
 
+    def find_by_idempotency_key(self, seller_id: int, idempotency_key: str) -> SellerProduct | None:
+        """Позиция, созданная предыдущей попыткой с тем же ключом.
+
+        Ключ принадлежит паре (продавец, ключ): его генерирует клиент в своей
+        книге, и совпадение ключей у двух разных продавцов — их частное дело.
+        """
+        return (
+            self.session.query(SellerProduct)
+            .filter(
+                SellerProduct.seller_id == seller_id,
+                SellerProduct.idempotency_key == idempotency_key,
+            )
+            .first()
+        )
+
     def _seller_admin_query(self, seller_id: int):
         """Каталог продавца со справочными данными. Join внешний: у новой
         позиции связи со справочником нет по определению."""
@@ -233,6 +248,7 @@ class SellerProductRepository:
         origin_country: str | None = None,
         supply_date: date | None = None,
         seller_sku: str | None = None,
+        idempotency_key: str | None = None,
     ) -> SellerProduct:
         now = datetime.now(timezone.utc)
         seller_product = SellerProduct(
@@ -246,6 +262,8 @@ class SellerProductRepository:
             origin_country=origin_country,
             supply_date=supply_date,
             seller_sku=seller_sku,
+            idempotency_key=idempotency_key,
+            version=1,
             is_published=is_published,
             moderation_status=moderation_status_for(product_id),
             created_at=now,

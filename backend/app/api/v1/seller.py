@@ -27,6 +27,7 @@ from app.api.v1.seller_schemas import (
     SellerStatusResponse,
 )
 from app.application.seller_catalog_use_case import (
+    CatalogChangedError,
     DuplicateSellerSkuError,
     ProductNotSelectableError,
     SellerCatalogUseCase,
@@ -260,6 +261,7 @@ def _catalog_item_fields(row, product, group) -> dict:
         "is_published": bool(row.is_published),
         "moderation_status": row.moderation_status,
         "updated_at": row.updated_at,
+        "version": row.version,
     }
 
 
@@ -419,7 +421,11 @@ def create_seller_product(
         return seller_access_denied()
 
     try:
-        created = SellerCatalogUseCase(session).create(access.seller_id, request.model_dump())
+        created = SellerCatalogUseCase(session).create(
+            access.seller_id,
+            request.model_dump(exclude={"idempotency_key"}),
+            idempotency_key=request.idempotency_key,
+        )
     except ProductNotSelectableError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
     except DuplicateSellerSkuError as exc:
@@ -449,7 +455,16 @@ def update_seller_product(
         return error_response(422, "VALIDATION_ERROR", f"Поля нельзя очистить: {', '.join(nulled)}")
 
     try:
-        updated = SellerCatalogUseCase(session).update(access.seller_id, seller_product_id, request.changes())
+        updated = SellerCatalogUseCase(session).update(
+            access.seller_id,
+            seller_product_id,
+            request.changes(),
+            expected_version=request.expected_version,
+        )
+    except CatalogChangedError as exc:
+        # Не 409 «дубль», а 409 «состояние изменилось»: клиент обязан отличать
+        # внешнее изменение от повтора собственной операции.
+        return error_response(409, "CATALOG_CHANGED", str(exc))
     except SellerProductNotFoundError:
         return error_response(404, "SELLER_PRODUCT_NOT_FOUND", "Позиция каталога не найдена")
     except ProductNotSelectableError as exc:

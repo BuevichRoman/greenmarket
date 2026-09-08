@@ -227,3 +227,96 @@ def test_created_row_belongs_to_its_seller_only(session):
     found = SellerProductRepository(session).find_for_seller_admin(seller_id, created.id)
 
     assert found is not None
+
+
+# ── Оптимистическая блокировка и идемпотентность ─────────────────────────────
+
+
+def test_version_starts_at_one_and_grows_on_change(session):
+    seller_id = insert_seller(session, name="Ферма версии строки")
+    created = use_case(session).create(seller_id, base_fields())
+    assert created.version == 1
+
+    updated = use_case(session).update(seller_id, created.id, {"price": 500})
+
+    assert updated.version == 2
+
+
+def test_version_does_not_grow_when_nothing_actually_changed(session):
+    """Повторная отправка тех же значений не должна ронять чужие решения:
+    версия — это ревизия содержимого, а не счётчик запросов."""
+    seller_id = insert_seller(session, name="Ферма неизменной версии")
+    created = use_case(session).create(seller_id, base_fields(price=250))
+
+    updated = use_case(session).update(seller_id, created.id, {"price": 250})
+
+    assert updated.version == 1
+
+
+def test_update_with_stale_expected_version_is_rejected(session):
+    """Чужое изменение между чтением и записью не должно быть затёрто."""
+    from app.application.seller_catalog_use_case import CatalogChangedError
+
+    seller_id = insert_seller(session, name="Ферма устаревшей версии")
+    created = use_case(session).create(seller_id, base_fields())
+    use_case(session).update(seller_id, created.id, {"price": 300})  # кто-то другой
+
+    with pytest.raises(CatalogChangedError):
+        use_case(session).update(seller_id, created.id, {"price": 400}, expected_version=1)
+
+
+def test_update_with_current_expected_version_succeeds(session):
+    seller_id = insert_seller(session, name="Ферма актуальной версии")
+    created = use_case(session).create(seller_id, base_fields())
+
+    updated = use_case(session).update(seller_id, created.id, {"price": 400}, expected_version=1)
+
+    assert float(updated.price) == 400
+    assert updated.version == 2
+
+
+def test_update_without_expected_version_still_works(session):
+    """Прежний контракт сохраняется: без токена действует last-write-wins,
+    как было зафиксировано в ТЗ Seller Catalog API."""
+    seller_id = insert_seller(session, name="Ферма без токена версии")
+    created = use_case(session).create(seller_id, base_fields())
+
+    updated = use_case(session).update(seller_id, created.id, {"price": 400})
+
+    assert float(updated.price) == 400
+
+
+def test_create_with_same_idempotency_key_returns_the_first_row(session):
+    """Потеря ответа после успешного создания не должна плодить дубли."""
+    seller_id = insert_seller(session, name="Ферма идемпотентного создания")
+    key = str(uuid.uuid4())
+
+    first = use_case(session).create(seller_id, base_fields(), idempotency_key=key)
+    second = use_case(session).create(seller_id, base_fields(seller_name="Другое имя"), idempotency_key=key)
+
+    assert second.id == first.id
+    # Повтор — это та же логическая операция, а не правка: значения первой
+    # попытки остаются, второе тело не применяется.
+    assert second.seller_name == "Товар продавца"
+
+
+def test_same_idempotency_key_of_another_seller_creates_its_own_row(session):
+    """Ключ генерирует клиент в своей книге — совпадение у двух продавцов их
+    частное дело, а не конфликт."""
+    first_seller = insert_seller(session, name="Ферма ключа первая")
+    second_seller = insert_seller(session, name="Ферма ключа вторая")
+    key = str(uuid.uuid4())
+
+    one = use_case(session).create(first_seller, base_fields(), idempotency_key=key)
+    two = use_case(session).create(second_seller, base_fields(), idempotency_key=key)
+
+    assert one.id != two.id
+
+
+def test_create_without_idempotency_key_is_not_deduplicated(session):
+    seller_id = insert_seller(session, name="Ферма без ключа идемпотентности")
+
+    first = use_case(session).create(seller_id, base_fields())
+    second = use_case(session).create(seller_id, base_fields())
+
+    assert first.id != second.id

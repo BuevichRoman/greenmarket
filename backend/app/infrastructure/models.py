@@ -95,6 +95,10 @@ class SellerProduct(Base):
     origin_country: Mapped[str | None] = mapped_column(String(100))
     supply_date: Mapped[date | None] = mapped_column(Date)
     seller_sku: Mapped[str | None] = mapped_column(String(64))
+    # Токен оптимистической блокировки и ключ идемпотентности создания —
+    # миграция 020, ТЗ «Безопасная двухсторонняя синхронизация», разделы 17, 21.
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
     is_published: Mapped[bool] = mapped_column(Boolean)
     moderation_status: Mapped[str] = mapped_column(String(30))
     moderator_id: Mapped[int | None] = mapped_column(Integer)

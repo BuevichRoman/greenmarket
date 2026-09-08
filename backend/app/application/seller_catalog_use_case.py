@@ -41,6 +41,16 @@ class DuplicateSellerSkuError(Exception):
     """Артикул уже занят другой позицией этого продавца."""
 
 
+class CatalogChangedError(Exception):
+    """Позицию изменил кто-то другой между чтением и записью.
+
+    Отличается от повтора собственной операции: повтор создания с тем же
+    ключом идемпотентности — успех, а это внешнее изменение, и решение,
+    принятое по старым данным, применять нельзя (ТЗ «Безопасная двухсторонняя
+    синхронизация», разделы 17 и 20).
+    """
+
+
 class SellerCatalogUseCase:
     """Правка каталога продавцом из Seller Admin.
 
@@ -55,7 +65,15 @@ class SellerCatalogUseCase:
         self.seller_product_repository = SellerProductRepository(session)
         self.product_repository = ProductRepository(session)
 
-    def create(self, seller_id: int, fields: dict) -> SellerProduct:
+    def create(self, seller_id: int, fields: dict, *, idempotency_key: str | None = None) -> SellerProduct:
+        if idempotency_key is not None:
+            # Повтор той же логической операции: сеть могла потерять ответ уже
+            # после того, как сервер создал позицию. Возвращаем созданное
+            # первой попыткой, а не применяем присланное тело заново.
+            existing = self.seller_product_repository.find_by_idempotency_key(seller_id, idempotency_key)
+            if existing is not None:
+                return existing
+
         product_id = fields.get("product_id")
         self._require_selectable(product_id)
 
@@ -71,18 +89,39 @@ class SellerCatalogUseCase:
                 origin_country=fields.get("origin_country"),
                 supply_date=fields.get("supply_date"),
                 seller_sku=fields.get("seller_sku"),
+                idempotency_key=idempotency_key,
                 # Новая позиция на витрину сама не выходит: публикация —
                 # отдельная операция, и фотографии к этому моменту ещё нет.
                 is_published=False,
             )
 
-    def update(self, seller_id: int, seller_product_id: int, changes: dict) -> SellerProduct:
+    def update(
+        self,
+        seller_id: int,
+        seller_product_id: int,
+        changes: dict,
+        *,
+        expected_version: int | None = None,
+    ) -> SellerProduct:
         """`changes` содержит только реально присланные ключи: отсутствие ключа
-        означает «не трогать», а `None` — очистить поле."""
+        означает «не трогать», а `None` — очистить поле.
+
+        `expected_version` — версия, которую клиент видел при чтении. Если
+        строку успели изменить, запись не выполняется: решение принималось по
+        данным, которых больше нет. Без токена действует прежнее поведение
+        last-write-wins.
+        """
         found = self.seller_product_repository.find_for_seller_admin(seller_id, seller_product_id)
         if found is None:
             raise SellerProductNotFoundError(f"Позиция каталога {seller_product_id} не найдена")
         row = found[0]
+
+        if expected_version is not None and row.version != expected_version:
+            raise CatalogChangedError(
+                f"Позиция изменена: ожидалась версия {expected_version}, текущая {row.version}"
+            )
+
+        before = _revision_of(row)
 
         if "product_id" in changes:
             self._apply_product_change(row, changes["product_id"])
@@ -91,7 +130,12 @@ class SellerCatalogUseCase:
             if field in changes:
                 setattr(row, field, changes[field])
 
-        row.updated_at = datetime.now(timezone.utc)
+        if _revision_of(row) != before:
+            # Версия — ревизия содержимого, а не счётчик запросов: повторная
+            # отправка тех же значений не должна ронять чужие решения.
+            row.version += 1
+            row.updated_at = datetime.now(timezone.utc)
+
         with self._sku_conflict_guard():
             self.session.flush()
         return row
@@ -137,3 +181,10 @@ class SellerCatalogUseCase:
 
     def _sku_conflict_guard(self) -> "_SkuConflictGuard":
         return self._SkuConflictGuard(self.session)
+
+
+def _revision_of(row: SellerProduct) -> tuple:
+    """Слепок значимых полей строки — по нему решается, изменилось ли
+    содержимое. `product_id` входит: смена товарной позиции меняет и то, что
+    видит покупатель, и статус модерации."""
+    return (row.product_id, *(getattr(row, field) for field in EDITABLE_FIELDS))

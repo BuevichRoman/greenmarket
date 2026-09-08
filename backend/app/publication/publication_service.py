@@ -163,6 +163,10 @@ class PublicationService:
                 # Товар без фото сохраняется, но покупателю не показывается —
                 # каталог обязан быть с картинками (Catalog_Template.md).
                 existing.is_published = bool(item.photo_ids)
+                # Публикация из книги — тоже изменение строки: Seller Admin,
+                # прочитавший её раньше, должен получить конфликт версий, а не
+                # затереть только что опубликованное.
+                existing.version += 1
                 self.seller_product_photo_repository.replace_for_product(existing.id, item.photo_ids)
                 updated += 1
 
@@ -170,6 +174,7 @@ class PublicationService:
         for seller_product in existing_by_id.values():
             if seller_product.id not in seen_ids and seller_product.is_published:
                 seller_product.is_published = False
+                seller_product.version += 1
                 deactivated += 1
 
         return created, updated, deactivated

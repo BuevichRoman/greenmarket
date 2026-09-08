@@ -71,6 +71,9 @@ class SellerCatalogPublisher:
                 if row.is_published == target:
                     continue
                 row.is_published = target
+                # Видимость — часть состояния строки: чужая сессия, читавшая
+                # её до публикации, обязана увидеть расхождение версий.
+                row.version += 1
                 if target:
                     updated += 1
                 else:

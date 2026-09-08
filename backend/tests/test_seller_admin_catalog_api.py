@@ -546,3 +546,79 @@ def test_end_to_end_seller_admin_flow_without_google_sheets(committing_session):
 
     visible = Repo(committing_session).list_visible_for_seller(seller_id)
     assert [row.id for row in visible] == [created["id"]]
+
+
+# ── Оптимистическая блокировка и идемпотентность ─────────────────────────────
+
+
+def test_patch_with_stale_version_returns_409_catalog_changed(committing_session):
+    """Гонка: между чтением и записью позицию изменил кто-то другой."""
+    seller_id = insert_seller(committing_session, name="Ферма гонки версий")
+    user_id = insert_user(committing_session, name="Пользователь гонки версий")
+    offer = add_offer(committing_session, seller_id, name="Товар гонки версий")
+    client = client_for(committing_session, seller_id, user_id)
+    client.patch(f"/api/v1/seller/products/{offer.id}", json={"price": "300"}, headers=AUTH)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}",
+        json={"price": "400", "expected_version": 1},
+        headers=AUTH,
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CATALOG_CHANGED"
+
+
+def test_patch_with_current_version_succeeds_and_returns_next_version(committing_session):
+    seller_id = insert_seller(committing_session, name="Ферма актуальной версии API")
+    user_id = insert_user(committing_session, name="Пользователь актуальной версии API")
+    offer = add_offer(committing_session, seller_id, name="Товар актуальной версии API")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}",
+        json={"price": "400", "expected_version": 1},
+        headers=AUTH,
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
+
+
+def test_repeated_create_with_same_key_does_not_duplicate(committing_session):
+    """Потеря ответа после успешного POST: повтор с тем же ключом возвращает
+    ту же позицию, а не создаёт вторую."""
+    seller_id = insert_seller(committing_session, name="Ферма повтора создания API")
+    user_id = insert_user(committing_session, name="Пользователь повтора создания API")
+    client = client_for(committing_session, seller_id, user_id)
+    key = str(uuid.uuid4())
+
+    first = client.post("/api/v1/seller/products", json={**NEW_PRODUCT, "idempotency_key": key}, headers=AUTH)
+    second = client.post("/api/v1/seller/products", json={**NEW_PRODUCT, "idempotency_key": key}, headers=AUTH)
+    listing = client.get("/api/v1/seller/products", headers=AUTH).json()
+
+    app.dependency_overrides.clear()
+    assert first.json()["id"] == second.json()["id"]
+    assert listing["total"] == 1
+
+
+def test_book_publication_bumps_version_so_stale_write_is_rejected(committing_session):
+    """Публикация из книги — тоже изменение строки. Seller Admin, прочитавший
+    её раньше, должен получить конфликт, а не затереть опубликованное."""
+    seller_id = insert_seller(committing_session, name="Ферма версии после публикации")
+    user_id = insert_user(committing_session, name="Пользователь версии после публикации")
+    offer = add_offer(committing_session, seller_id, name="Товар версии после публикации")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+    upload(client, offer.id)
+
+    client.post("/api/v1/seller/catalog/publish", headers=AUTH)
+    response = client.patch(
+        f"/api/v1/seller/products/{offer.id}", json={"price": "500", "expected_version": 1}, headers=AUTH
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CATALOG_CHANGED"
