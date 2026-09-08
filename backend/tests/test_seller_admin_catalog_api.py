@@ -281,7 +281,7 @@ def test_patch_product_saves_only_given_field(committing_session):
     client = client_for(committing_session, seller_id, user_id)
 
     response = client.patch(
-        f"/api/v1/seller/products/{offer.id}", json={"price": "777.00"}, headers=AUTH
+        f"/api/v1/seller/products/{offer.id}", json={"price": "777.00", "expected_version": 1}, headers=AUTH
     )
 
     app.dependency_overrides.clear()
@@ -300,7 +300,7 @@ def test_patch_selecting_product_resolves_moderation(committing_session):
     client = client_for(committing_session, seller_id, user_id)
 
     response = client.patch(
-        f"/api/v1/seller/products/{offer.id}", json={"product_id": product_id}, headers=AUTH
+        f"/api/v1/seller/products/{offer.id}", json={"product_id": product_id, "expected_version": 1}, headers=AUTH
     )
 
     app.dependency_overrides.clear()
@@ -316,7 +316,7 @@ def test_patch_cannot_clear_seller_name(committing_session):
     client = client_for(committing_session, seller_id, user_id)
 
     response = client.patch(
-        f"/api/v1/seller/products/{offer.id}", json={"seller_name": None}, headers=AUTH
+        f"/api/v1/seller/products/{offer.id}", json={"seller_name": None, "expected_version": 1}, headers=AUTH
     )
 
     app.dependency_overrides.clear()
@@ -331,7 +331,7 @@ def test_patch_cannot_publish_product(committing_session):
     client = client_for(committing_session, seller_id, user_id)
 
     response = client.patch(
-        f"/api/v1/seller/products/{offer.id}", json={"is_published": True}, headers=AUTH
+        f"/api/v1/seller/products/{offer.id}", json={"is_published": True, "expected_version": 1}, headers=AUTH
     )
 
     app.dependency_overrides.clear()
@@ -345,7 +345,7 @@ def test_patch_foreign_product_is_not_found(committing_session):
     foreign = add_offer(committing_session, theirs, name="Чужой товар правки API")
     client = client_for(committing_session, mine, user_id)
 
-    response = client.patch(f"/api/v1/seller/products/{foreign.id}", json={"price": "1"}, headers=AUTH)
+    response = client.patch(f"/api/v1/seller/products/{foreign.id}", json={"price": "1", "expected_version": 1}, headers=AUTH)
 
     app.dependency_overrides.clear()
     assert response.status_code == 404
@@ -362,7 +362,7 @@ def test_patch_duplicate_sku_returns_409(committing_session):
     ).json()
 
     response = client.patch(
-        f"/api/v1/seller/products/{other['id']}", json={"seller_sku": taken}, headers=AUTH
+        f"/api/v1/seller/products/{other['id']}", json={"seller_sku": taken, "expected_version": 1}, headers=AUTH
     )
 
     app.dependency_overrides.clear()
@@ -557,7 +557,7 @@ def test_patch_with_stale_version_returns_409_catalog_changed(committing_session
     user_id = insert_user(committing_session, name="Пользователь гонки версий")
     offer = add_offer(committing_session, seller_id, name="Товар гонки версий")
     client = client_for(committing_session, seller_id, user_id)
-    client.patch(f"/api/v1/seller/products/{offer.id}", json={"price": "300"}, headers=AUTH)
+    client.patch(f"/api/v1/seller/products/{offer.id}", json={"price": "300", "expected_version": 1}, headers=AUTH)
 
     response = client.patch(
         f"/api/v1/seller/products/{offer.id}",
@@ -622,3 +622,17 @@ def test_book_publication_bumps_version_so_stale_write_is_rejected(committing_se
     app.dependency_overrides.clear()
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "CATALOG_CHANGED"
+
+
+def test_patch_without_expected_version_is_rejected(committing_session):
+    """Токен версии обязателен: иначе защиту от гонки можно обойти случайно,
+    просто не прислав поле."""
+    seller_id = insert_seller(committing_session, name="Ферма без токена версии API")
+    user_id = insert_user(committing_session, name="Пользователь без токена версии API")
+    offer = add_offer(committing_session, seller_id, name="Товар без токена версии API")
+    client = client_for(committing_session, seller_id, user_id)
+
+    response = client.patch(f"/api/v1/seller/products/{offer.id}", json={"price": "500"}, headers=AUTH)
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
