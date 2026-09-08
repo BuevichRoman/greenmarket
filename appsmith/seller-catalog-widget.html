@@ -573,7 +573,29 @@ label.f textarea{resize:vertical;min-height:48px}
   /* ═══ ХОСТ ═══════════════════════════════════════════════════════
      Единственный слой, который меняется при подключении к боевому API. */
 
-  var inAppsmith = typeof appsmith !== 'undefined' && appsmith && typeof appsmith.onReady === 'function';
+  /* Хост появляется позже скрипта. Appsmith создаёт свой служебный объект
+     асинхронно, а этот файл — один инлайновый <script>, который выполняется
+     сразу; `defer` на инлайновых скриптах игнорируется, поэтому «подождать»
+     атрибутом нельзя. Проверять один раз при загрузке — худший вариант из
+     возможных: флаг навсегда застревает в `false`, виджет молча показывает
+     демо-данные вместо каталога продавца, а правки уходят в консоль. Поэтому
+     проверка ленивая, а появления хоста ждём опросом. */
+  function hostApi() {
+    return typeof appsmith !== 'undefined' && appsmith && typeof appsmith.onReady === 'function'
+      ? appsmith
+      : null;
+  }
+
+  /* Внутри Appsmith виджет живёт в iframe. Это и есть признак «здесь обязан
+     быть хост»: ждать его надо сколько угодно, а демо-данные показывать нельзя
+     ни секунды — продавец принял бы чужие помидоры за свой каталог. Открытый
+     из файла документ верхнеуровневый, там ждать нечего и сразу показывается
+     демо. */
+  var EMBEDDED = (function () {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  })();
+
+  var HOST_POLL_MS = 50;
 
   var DEMO_PRODUCTS = [
         {
@@ -842,9 +864,10 @@ label.f textarea{resize:vertical;min-height:48px}
   }
 
   function emit(name, payload) {
-    if (!inAppsmith) { console.log('[event] ' + name, payload); return; }
-    appsmith.updateModel({ pending: payload || {} });
-    appsmith.triggerEvent(name);
+    var host = hostApi();
+    if (!host) { console.log('[event] ' + name, payload); return; }
+    host.updateModel({ pending: payload || {} });
+    host.triggerEvent(name);
   }
 
   function useHost() {
@@ -852,22 +875,44 @@ label.f textarea{resize:vertical;min-height:48px}
        В Appsmith модель наполняется асинхронно: виджет монтируется раньше,
        чем отвечает запрос, поэтому подписка на onModelChange обязательна —
        без неё у посетителя, открывшего страницу «с холода», список пустой. */
-    var b = useState(inAppsmith ? adapt((appsmith.model && appsmith.model.products) || []) : DEMO_PRODUCTS);
+    var b = useState(
+      hostApi() ? adapt((hostApi().model && hostApi().model.products) || [])
+                : (EMBEDDED ? [] : DEMO_PRODUCTS)
+    );
     var base = b[0], setBase = b[1];
     var l = useState(false), loading = l[0], setLoading = l[1];
     var o = useState({}), overrides = o[0], setOverrides = o[1];
 
     var syncFromHost = useCallback(function () {
-      var m = appsmith.model || {};
+      var host = hostApi();
+      if (!host) return;
+      var m = host.model || {};
       setBase(adapt(m.products || []));
       setLoading(!!m.loading);
     }, []);
 
+    var h = useState(!!hostApi()), hostReady = h[0], setHostReady = h[1];
+
     useEffect(function () {
-      if (!inAppsmith) return;
-      appsmith.onReady(syncFromHost);
-      if (typeof appsmith.onModelChange === 'function') appsmith.onModelChange(syncFromHost);
-    }, [syncFromHost]);
+      /* Ждём хост опросом. Во встроенном виде — без ограничения по времени:
+         остановиться означало бы навсегда остаться с пустым списком. Вне
+         iframe ждать нечего вовсе. */
+      if (hostReady || !EMBEDDED) return;
+      var timer = setInterval(function () {
+        if (hostApi()) { clearInterval(timer); setHostReady(true); }
+      }, HOST_POLL_MS);
+      return function () { clearInterval(timer); };
+    }, [hostReady]);
+
+    useEffect(function () {
+      var host = hostApi();
+      if (!host) return;
+      // Хост появился: демо-данные, показанные до этого момента, надо заменить
+      // настоящими сразу, не дожидаясь первого onModelChange.
+      syncFromHost();
+      host.onReady(syncFromHost);
+      if (typeof host.onModelChange === 'function') host.onModelChange(syncFromHost);
+    }, [hostReady, syncFromHost]);
 
     /* Правки не теряются при обновлении модели: хост отдаёт исходные строки,
        наложение живёт отдельно и переживает перезалив списка. */
@@ -888,7 +933,7 @@ label.f textarea{resize:vertical;min-height:48px}
 
     return {
       products: products, loading: loading,
-      seller: (inAppsmith && appsmith.model && appsmith.model.seller) ||
+      seller: (hostApi() && hostApi().model && hostApi().model.seller) ||
               { name: 'Фермерское хозяйство «Араз»', place: 'Торговое место #14' },
 
       patchField: function (id, field, value) {
@@ -920,7 +965,7 @@ label.f textarea{resize:vertical;min-height:48px}
       },
       refresh: function () {
         setOverrides({});
-        if (!inAppsmith) { setBase(DEMO_PRODUCTS); return; }
+        if (!hostApi()) { setBase(EMBEDDED ? [] : DEMO_PRODUCTS); return; }
         emit('onRefresh', {});
       }
     };
