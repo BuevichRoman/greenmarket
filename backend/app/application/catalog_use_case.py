@@ -392,6 +392,10 @@ class CatalogUseCase:
         }
 
 
+class UnknownCatalogSortError(ValueError):
+    """Запрошена сортировка, которой каталог не знает."""
+
+
 def _sorted_for_catalog(items: list, *, sort: str, sort_dir: str, identity, key_by_sort: dict) -> list:
     """Порядок выдачи каталога.
 
@@ -413,7 +417,15 @@ def _sorted_for_catalog(items: list, *, sort: str, sort_dir: str, identity, key_
         dated.sort(key=key, reverse=descending)
         return dated + undated
 
-    key = key_by_sort.get(sort, key_by_sort["name"])
+    key = key_by_sort.get(sort)
+    if key is None:
+        # Молчаливый откат к сортировке по имени запрещён контрактом каталога:
+        # неизвестное значение — это ошибка вызова, а не повод отдать выдачу в
+        # другом порядке. FastAPI закрывает это снаружи перечислением, здесь
+        # закрыт внутренний вызов.
+        raise UnknownCatalogSortError(
+            f"Сортировка '{sort}' не поддерживается: {', '.join(sorted(key_by_sort))}"
+        )
     # sorted() устойчив и при reverse=True, поэтому предварительная сортировка
     # по идентификатору переживает разворот.
     ordered.sort(key=key, reverse=descending)

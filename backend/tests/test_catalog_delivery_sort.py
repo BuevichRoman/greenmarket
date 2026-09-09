@@ -269,3 +269,17 @@ def test_http_unknown_sort_value_is_still_rejected(committing_session):
 
     app.dependency_overrides.clear()
     assert response.status_code == 422
+
+
+def test_unknown_sort_raises_instead_of_falling_back_to_name(session):
+    """Контракт каталога запрещает маскировать неизвестную сортировку выдачей
+    по имени. Снаружи это закрывает перечисление FastAPI, здесь — внутренний
+    вызов: молча отданный другой порядок неотличим от применившегося."""
+    import pytest
+
+    from app.application.catalog_use_case import UnknownCatalogSortError
+
+    _, group_id, _, _ = build_catalog(session, prefix="неизвестная сортировка")
+
+    with pytest.raises(UnknownCatalogSortError):
+        CatalogUseCase(session).list_products(group_ids=[group_id], sort="freshness")
