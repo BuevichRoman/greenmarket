@@ -4,6 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.publications import get_seller_access_resolver
 from app.api.v1.schemas import PublicationResponse, error_response
+from app.api.v1.sync_schemas import (
+    BaselineCreateRequest,
+    BaselineItem,
+    BaselineResponse,
+    SyncSessionCreateRequest,
+    SyncSessionResponse,
+)
 from app.api.v1.seller_catalog_schemas import (
     ProductSuggestion,
     ProductSuggestListResponse,
@@ -33,6 +40,7 @@ from app.application.seller_catalog_use_case import (
     SellerCatalogUseCase,
     SellerProductNotFoundError,
 )
+from app.application.catalog_sync_use_case import CatalogSyncUseCase
 from app.infrastructure.database import get_session
 from app.infrastructure.repositories.catalog_publication_repository import CatalogPublicationRepository
 from app.core.config import settings
@@ -54,6 +62,14 @@ from app.infrastructure.repositories.seller_product_photo_repository import Sell
 from app.publication.seller_access import SellerAccess, resolve_seller_access
 from app.publication.seller_activation import activate_seller
 from app.publication.seller_catalog_publisher import SellerCatalogPublisher
+from app.sync.errors import (
+    BaselineInProgressError,
+    BaselineNotReadyError,
+    SheetCatalogMismatchError,
+    SyncSessionExpiredError,
+    SyncSessionNotFoundError,
+    SyncSessionNotInvalidatableError,
+)
 
 router = APIRouter(prefix="/api/v1/seller", tags=["seller"])
 
@@ -523,3 +539,143 @@ def upload_seller_product_photo(
         ),
         sort_order=sort_order,
     )
+
+
+def _session_response(state) -> SyncSessionResponse:
+    return SyncSessionResponse(
+        session_id=state.row.session_id,
+        status=state.status,
+        baseline_ready=state.baseline_ready,
+        db_changed_since_baseline=state.db_changed_since_baseline,
+        created_at=state.row.created_at,
+        expires_at=state.row.expires_at,
+    )
+
+
+def _sync_session_not_found() -> JSONResponse:
+    # Чужая сессия неотличима от несуществующей — то же правило, что у позиций
+    # каталога: иначе перебором выясняется, какие сессии есть у соседа.
+    return error_response(404, "SYNC_SESSION_NOT_FOUND", "Сессия сверки не найдена")
+
+
+@router.post("/catalog/sync-sessions", response_model=SyncSessionResponse, status_code=201)
+def create_sync_session(
+    request: SyncSessionCreateRequest,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SyncSessionResponse | JSONResponse:
+    """Начать рабочую сессию сверки каталога с книгой."""
+    if access is None:
+        return seller_access_denied()
+
+    use_case = CatalogSyncUseCase(session)
+    created = use_case.create_session(access.seller_id, idempotency_key=request.idempotency_key)
+    session.commit()
+    return _session_response(use_case.load_session(access.seller_id, created.session_id))
+
+
+@router.get("/catalog/sync-sessions/{session_id}", response_model=SyncSessionResponse)
+def get_sync_session(
+    session_id: str,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SyncSessionResponse | JSONResponse:
+    """Состояние сессии. Именно этим запросом клиент восстанавливается после
+    перезагрузки страницы — ради этого сессия и живёт на сервере."""
+    if access is None:
+        return seller_access_denied()
+
+    use_case = CatalogSyncUseCase(session)
+    try:
+        state = use_case.load_session(access.seller_id, session_id)
+    except SyncSessionNotFoundError:
+        return _sync_session_not_found()
+    session.commit()
+    return _session_response(state)
+
+
+@router.post("/catalog/sync-sessions/{session_id}/baseline", response_model=BaselineResponse, status_code=201)
+def create_sync_baseline(
+    session_id: str,
+    request: BaselineCreateRequest,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> BaselineResponse | JSONResponse:
+    """Зафиксировать снимок каталога.
+
+    Отпечаток книги здесь не справка, а условие: пока клиент не докажет, что
+    состояния совпадают, снимок не создаётся — иначе точка отсчёта сверки
+    оказалась бы взята из уже разошедшихся состояний.
+    """
+    if access is None:
+        return seller_access_denied()
+
+    use_case = CatalogSyncUseCase(session)
+    try:
+        rows = use_case.create_baseline(
+            access.seller_id, session_id, sheet_catalog_hash=request.sheet_catalog_hash
+        )
+    except SyncSessionNotFoundError:
+        return _sync_session_not_found()
+    except SyncSessionExpiredError as exc:
+        return error_response(409, "SYNC_SESSION_NOT_USABLE", str(exc))
+    except SheetCatalogMismatchError as exc:
+        return error_response(409, "CATALOG_SHEET_MISMATCH", str(exc))
+    except BaselineInProgressError as exc:
+        return error_response(409, "BASELINE_IN_PROGRESS", str(exc))
+
+    session.commit()
+    state = use_case.load_session(access.seller_id, session_id)
+    return BaselineResponse(
+        session_id=session_id,
+        created_at=state.row.baseline_created_at,
+        items=[BaselineItem.model_validate(row, from_attributes=True) for row in rows],
+    )
+
+
+@router.get("/catalog/sync-sessions/{session_id}/baseline", response_model=BaselineResponse)
+def get_sync_baseline(
+    session_id: str,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> BaselineResponse | JSONResponse:
+    if access is None:
+        return seller_access_denied()
+
+    use_case = CatalogSyncUseCase(session)
+    try:
+        rows = use_case.get_baseline(access.seller_id, session_id)
+        state = use_case.load_session(access.seller_id, session_id)
+    except SyncSessionNotFoundError:
+        return _sync_session_not_found()
+    except BaselineNotReadyError as exc:
+        return error_response(404, "BASELINE_NOT_READY", str(exc))
+    except BaselineInProgressError as exc:
+        return error_response(409, "BASELINE_IN_PROGRESS", str(exc))
+
+    return BaselineResponse(
+        session_id=session_id,
+        created_at=state.row.baseline_created_at,
+        items=[BaselineItem.model_validate(row, from_attributes=True) for row in rows],
+    )
+
+
+@router.post("/catalog/sync-sessions/{session_id}/invalidate", response_model=SyncSessionResponse)
+def invalidate_sync_session(
+    session_id: str,
+    session: Session = Depends(get_session),
+    access: SellerAccess | None = Depends(get_seller_bearer_access),
+) -> SyncSessionResponse | JSONResponse:
+    """Отказаться от сессии: принятые по ней решения больше не применяются."""
+    if access is None:
+        return seller_access_denied()
+
+    use_case = CatalogSyncUseCase(session)
+    try:
+        use_case.invalidate(access.seller_id, session_id)
+    except SyncSessionNotFoundError:
+        return _sync_session_not_found()
+    except SyncSessionNotInvalidatableError as exc:
+        return error_response(409, "SYNC_SESSION_COMPLETED", str(exc))
+    session.commit()
+    return _session_response(use_case.load_session(access.seller_id, session_id))
