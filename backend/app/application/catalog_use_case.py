@@ -100,6 +100,7 @@ class CatalogUseCase:
         group_ids: list[int] | None = None,
         search: str | None = None,
         sort: str = "name",
+        sort_dir: str = "asc",
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[dict], int]:
@@ -112,10 +113,17 @@ class CatalogUseCase:
             for product_id, offers in offers_by_product.items()
         }
 
-        if sort == "price":
-            visible_products.sort(key=lambda p: cheapest_offer_by_product[p.id].price)
-        else:
-            visible_products.sort(key=lambda p: p.name)
+        visible_products = _sorted_for_catalog(
+            visible_products,
+            sort=sort,
+            sort_dir=sort_dir,
+            identity=lambda p: p.id,
+            key_by_sort={
+                "price": lambda p: cheapest_offer_by_product[p.id].price,
+                "name": lambda p: p.name,
+                "delivery": lambda p: cheapest_offer_by_product[p.id].supply_date,
+            },
+        )
 
         total = len(visible_products)
         start = (page - 1) * limit
@@ -134,6 +142,11 @@ class CatalogUseCase:
                     "name": product.name,
                     "min_price": cheapest.price,
                     "offer_count": len(offers),
+                    # Дата поставки того же предложения, что дало цену и фото:
+                    # у товара их столько же, сколько продавцов, и смешивать
+                    # цену одного с датой другого значило бы описывать в одной
+                    # карточке два разных предложения.
+                    "supply_date": cheapest.supply_date,
                     "photos": _photo_urls(photos_by_seller_product.get(cheapest.id, [])),
                 }
             )
@@ -311,6 +324,7 @@ class CatalogUseCase:
         group_ids: list[int] | None = None,
         search: str | None = None,
         sort: str = "name",
+        sort_dir: str = "asc",
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[dict], int] | None:
@@ -329,7 +343,7 @@ class CatalogUseCase:
             return None
 
         offers = self.seller_product_repository.list_visible_for_seller(
-            seller_id, group_ids=self._expand_groups(group_ids), search=search, sort=sort
+            seller_id, group_ids=self._expand_groups(group_ids), search=search, sort=sort, sort_dir=sort_dir
         )
         total = len(offers)
         page_items = offers[(page - 1) * limit : (page - 1) * limit + limit]
@@ -376,3 +390,31 @@ class CatalogUseCase:
             "latitude": market.latitude,
             "longitude": market.longitude,
         }
+
+
+def _sorted_for_catalog(items: list, *, sort: str, sort_dir: str, identity, key_by_sort: dict) -> list:
+    """Порядок выдачи каталога.
+
+    Идентификатор — второй ключ всегда и всегда по возрастанию: без него товары
+    с одинаковой ценой или датой раскладываются по страницам как попало и могут
+    показаться дважды. Переворачивать его вместе с направлением нельзя — это
+    ломало бы стабильность, а не давало «обратный порядок».
+
+    Пустая дата не участвует в сравнении: товар без даты поставки не самый
+    свежий и не самый старый, поэтому в обе стороны он уходит в конец.
+    """
+    ordered = sorted(items, key=identity)
+    descending = sort_dir == "desc"
+
+    if sort == "delivery":
+        key = key_by_sort["delivery"]
+        dated = [item for item in ordered if key(item) is not None]
+        undated = [item for item in ordered if key(item) is None]
+        dated.sort(key=key, reverse=descending)
+        return dated + undated
+
+    key = key_by_sort.get(sort, key_by_sort["name"])
+    # sorted() устойчив и при reverse=True, поэтому предварительная сортировка
+    # по идентификатору переживает разворот.
+    ordered.sort(key=key, reverse=descending)
+    return ordered

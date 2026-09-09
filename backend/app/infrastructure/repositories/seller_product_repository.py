@@ -55,6 +55,25 @@ def parse_seller_admin_sort(sort: str | None) -> tuple[object, bool]:
     return column, descending
 
 
+def _seller_catalog_order(sort: str, sort_dir: str) -> tuple:
+    """Порядок каталога продавца.
+
+    Пустая дата поставки уходит в конец в обе стороны: MySQL сам кладёт NULL в
+    начало при ASC, а товар без даты не «самый ранний» — он просто без даты.
+    Отсюда отдельный первый ключ `supply_date IS NULL`.
+
+    Идентификатор добавляется вызывающим последним и всегда по возрастанию —
+    он различает строки с одинаковым значением и не переворачивается вместе с
+    направлением, иначе страницы перестали бы складываться в один порядок.
+    """
+    descending = sort_dir == "desc"
+    if sort == "delivery":
+        column = SellerProduct.supply_date
+        return (column.is_(None), column.desc() if descending else column.asc())
+    column = SellerProduct.price if sort == "price" else SellerProduct.seller_name
+    return (column.desc() if descending else column.asc(),)
+
+
 class SellerProductRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -181,7 +200,13 @@ class SellerProductRepository:
         return items, total
 
     def list_visible_for_seller(
-        self, seller_id: int, *, group_ids: list[int] | None = None, search: str | None = None, sort: str = "name"
+        self,
+        seller_id: int,
+        *,
+        group_ids: list[int] | None = None,
+        search: str | None = None,
+        sort: str = "name",
+        sort_dir: str = "asc",
     ) -> list[SellerProduct]:
         """Каталог одного продавца для покупателя (REST_API.md,
         `GET /catalog/sellers/{id}/products`).
@@ -218,8 +243,7 @@ class SellerProductRepository:
                     Product.name.ilike(pattern, escape=LIKE_ESCAPE),
                 )
             )
-        order = SellerProduct.price if sort == "price" else SellerProduct.seller_name
-        return query.order_by(order, SellerProduct.id).all()
+        return query.order_by(*_seller_catalog_order(sort, sort_dir), SellerProduct.id).all()
 
     def list_published_for_products(self, product_ids: list[int]) -> list[SellerProduct]:
         if not product_ids:

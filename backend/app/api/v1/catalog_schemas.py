@@ -22,6 +22,10 @@ class ProductListItem(BaseModel):
     min_price: Decimal
     offer_count: int
     photos: list[str]
+    # Дата поставки того предложения, что дало цену и фотографии: у товара их
+    # столько же, сколько продавцов, и брать дату у одного, а цену у другого
+    # значило бы описывать в одной карточке два разных предложения.
+    supply_date: date | None = None
 
 
 class ProductListResponse(BaseModel):
