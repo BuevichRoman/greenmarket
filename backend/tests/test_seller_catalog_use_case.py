@@ -276,8 +276,10 @@ def test_update_with_current_expected_version_succeeds(session):
 
 
 def test_update_without_expected_version_still_works(session):
-    """Прежний контракт сохраняется: без токена действует last-write-wins,
-    как было зафиксировано в ТЗ Seller Catalog API."""
+    """Доменный сервис токен не требует — обязательность живёт на границе API,
+    где есть клиент, которого надо защитить от случайного обхода. Внутренние
+    вызовы (публикация, книга) правят строку своими путями и о версии клиента
+    ничего не знают."""
     seller_id = insert_seller(session, name="Ферма без токена версии")
     created = use_case(session).create(seller_id, base_fields())
 
