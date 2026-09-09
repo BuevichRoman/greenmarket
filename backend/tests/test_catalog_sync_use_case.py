@@ -15,9 +15,11 @@ from app.application.catalog_sync_use_case import CatalogSyncUseCase
 from app.infrastructure.models import CatalogSyncSession
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.sync.errors import (
+    BaselineInProgressError,
     SheetCatalogMismatchError,
     SyncSessionExpiredError,
     SyncSessionNotFoundError,
+    SyncSessionNotInvalidatableError,
 )
 from app.sync.fingerprint import catalog_fingerprint
 
@@ -246,3 +248,109 @@ def test_fingerprint_does_not_depend_on_row_order(session):
     rows = SellerProductRepository(session).list_by_seller(seller_id)
 
     assert catalog_fingerprint(rows) == catalog_fingerprint(list(reversed(rows)))
+
+
+# ── Замечания ревью: гонки и инвариант версии ────────────────────────────────
+
+
+def test_concurrent_session_creation_with_same_key_returns_the_winner(session):
+    """Гонка: второй запрос не увидел первую сессию при чтении и упёрся в
+    уникальный ключ. Это тот же повтор, а не ошибка клиента."""
+    seller_id = insert_seller(session, name="Ферма гонки ключа")
+    key = str(uuid.uuid4())
+    use_case = sync(session)
+    first = use_case.create_session(seller_id, idempotency_key=key)
+
+    # Имитируем проигравшего: при чтении он сессии не видит и идёт вставлять.
+    use_case._find_by_idempotency_key = _MissOnce(use_case._find_by_idempotency_key)
+
+    second = use_case.create_session(seller_id, idempotency_key=key)
+
+    assert second.session_id == first.session_id
+
+
+class _MissOnce:
+    """Первый вызов «не находит» — так воспроизводится окно между чтением и
+    вставкой, в котором чужая транзакция успевает закоммитить сессию."""
+
+    def __init__(self, original):
+        self._original = original
+        self._missed = False
+
+    def __call__(self, *args, **kwargs):
+        if not self._missed:
+            self._missed = True
+            return None
+        return self._original(*args, **kwargs)
+
+
+def test_concurrent_baseline_creation_does_not_return_empty_snapshot(session):
+    """Отметка стоит, строк ещё нет: их дописывает другая транзакция. Отдать
+    пустой снимок значило бы выдать пустой каталог за состояние."""
+    seller_id = insert_seller(session, name="Ферма гонки снимка")
+    add_offer(session, seller_id, name="Товар гонки снимка")
+    created = sync(session).create_session(seller_id)
+    row = (
+        session.query(CatalogSyncSession)
+        .filter(CatalogSyncSession.session_id == created.session_id)
+        .one()
+    )
+    row.baseline_created_at = datetime.now(timezone.utc)
+    session.flush()
+
+    with pytest.raises(BaselineInProgressError):
+        sync(session).create_baseline(
+            seller_id, created.session_id, sheet_catalog_hash=current_hash(session, seller_id)
+        )
+
+
+def test_completed_session_cannot_be_invalidated(session):
+    seller_id = insert_seller(session, name="Ферма завершённой сессии")
+    created = sync(session).create_session(seller_id)
+    sync(session).complete(seller_id, created.session_id)
+
+    with pytest.raises(SyncSessionNotInvalidatableError):
+        sync(session).invalidate(seller_id, created.session_id)
+
+
+def test_invalidating_expired_session_is_a_no_op(session):
+    seller_id = insert_seller(session, name="Ферма отмены истёкшей")
+    created = sync(session).create_session(seller_id)
+    expire(session, created.session_id)
+
+    sync(session).invalidate(seller_id, created.session_id)
+
+    assert sync(session).load_session(seller_id, created.session_id).status == "EXPIRED"
+
+
+def test_added_position_shows_up_as_db_change(session):
+    """Появление позиции после снимка — тоже изменение: для трёхстороннего
+    сравнения добавление так же значимо, как правка."""
+    seller_id = insert_seller(session, name="Ферма добавления после снимка")
+    add_offer(session, seller_id, name="Исходный товар")
+    created = sync(session).create_session(seller_id)
+    sync(session).create_baseline(seller_id, created.session_id, sheet_catalog_hash=current_hash(session, seller_id))
+
+    add_offer(session, seller_id, name="Товар, добавленный после снимка")
+    session.flush()
+
+    assert sync(session).load_session(seller_id, created.session_id).db_changed_since_baseline is True
+
+
+def test_deactivation_bumps_version_and_shows_up_as_db_change(session):
+    """Снятие с витрины обязано менять version — иначе сессия не заметила бы
+    исчезновения товара у покупателя."""
+    seller_id = insert_seller(session, name="Ферма снятия после снимка")
+    offer = add_offer(session, seller_id, name="Товар снятия")
+    offer.is_published = True
+    session.flush()
+    created = sync(session).create_session(seller_id)
+    sync(session).create_baseline(seller_id, created.session_id, sheet_catalog_hash=current_hash(session, seller_id))
+    before = offer.version
+
+    offer.is_published = False
+    offer.version += 1
+    session.flush()
+
+    assert offer.version == before + 1
+    assert sync(session).load_session(seller_id, created.session_id).db_changed_since_baseline is True

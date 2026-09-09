@@ -2,16 +2,19 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+from sqlalchemy import exists, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.models import CatalogSyncBaseline, CatalogSyncSession
 from app.infrastructure.repositories.seller_product_repository import SellerProductRepository
 from app.sync.errors import (
+    BaselineInProgressError,
     BaselineNotReadyError,
     SheetCatalogMismatchError,
     SyncSessionExpiredError,
     SyncSessionNotFoundError,
+    SyncSessionNotInvalidatableError,
 )
 from app.sync.fingerprint import catalog_fingerprint
 
@@ -53,14 +56,7 @@ class CatalogSyncUseCase:
 
     def create_session(self, seller_id: int, *, idempotency_key: str | None = None) -> CatalogSyncSession:
         if idempotency_key is not None:
-            existing = (
-                self.session.query(CatalogSyncSession)
-                .filter(
-                    CatalogSyncSession.seller_id == seller_id,
-                    CatalogSyncSession.idempotency_key == idempotency_key,
-                )
-                .first()
-            )
+            existing = self._find_by_idempotency_key(seller_id, idempotency_key)
             if existing is not None:
                 return existing
 
@@ -74,15 +70,43 @@ class CatalogSyncUseCase:
             baseline_created_at=None,
             idempotency_key=idempotency_key,
         )
-        self.session.add(row)
-        self.session.flush()
+        try:
+            # Вставка в SAVEPOINT: одновременный запрос с тем же ключом упрётся
+            # в uk_CatalogSyncSession_idempotency, и это не ошибка клиента, а
+            # тот же самый повтор — просто пришедший раньше, чем мы успели его
+            # увидеть. Откатывается только вложенная транзакция, работа вызова
+            # не теряется.
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            if idempotency_key is None:
+                raise
+            winner = self._find_by_idempotency_key(seller_id, idempotency_key)
+            if winner is None:
+                raise
+            return winner
         return row
+
+    def _find_by_idempotency_key(self, seller_id: int, idempotency_key: str) -> CatalogSyncSession | None:
+        return (
+            self.session.query(CatalogSyncSession)
+            .filter(
+                CatalogSyncSession.seller_id == seller_id,
+                CatalogSyncSession.idempotency_key == idempotency_key,
+            )
+            .first()
+        )
 
     def load_session(self, seller_id: int, session_id: str) -> SessionState:
         row = self._own_session(seller_id, session_id)
         self._collect_finished_baselines(seller_id)
         status = self._effective_status(row)
-        baseline_ready = row.baseline_created_at is not None
+        # Признак считается по фактическому наличию строк, а не по отметке:
+        # очистка выше могла только что удалить снимок завершённой сессии, и
+        # ответ «снимок есть» при пустой выдаче baseline противоречил бы сам
+        # себе.
+        baseline_ready = self._has_baseline_rows(row.id)
         return SessionState(
             row=row,
             status=status,
@@ -91,7 +115,21 @@ class CatalogSyncUseCase:
         )
 
     def invalidate(self, seller_id: int, session_id: str) -> CatalogSyncSession:
+        """Отказаться от сессии может только живая сессия.
+
+        Уже инвалидированная и истёкшая отвечают успехом: намерение клиента —
+        «эта сессия больше не используется» — по ним и так выполнено. А
+        завершённая нет: публикация книги состоялась, и объявлять её задним
+        числом брошенной нельзя.
+        """
         row = self._own_session(seller_id, session_id)
+        status = self._effective_status(row)
+        if status == COMPLETED:
+            raise SyncSessionNotInvalidatableError(
+                f"Сессия {session_id} завершена публикацией и не может быть отменена"
+            )
+        if status in (INVALIDATED, EXPIRED):
+            return row
         row.status = INVALIDATED
         self.session.flush()
         return row
@@ -114,7 +152,7 @@ class CatalogSyncUseCase:
         self._require_usable(row)
 
         if row.baseline_created_at is not None:
-            return self._baseline_rows(row.id)
+            return self._require_written_baseline(row)
 
         # Всё дальнейшее — одна транзакция: снимок и отметка о нём фиксируются
         # вместе, поэтому частично записанный baseline увидеть нельзя. Прод в
@@ -136,8 +174,12 @@ class CatalogSyncUseCase:
             {"now": datetime.now(timezone.utc), "id": row.id},
         ).rowcount
         if not claimed:
+            # Отметку поставил кто-то другой. Его строки могут быть ещё не
+            # видны нашей транзакции, и «вернуть пустой снимок» здесь было бы
+            # худшим из ответов: клиент принял бы отсутствие позиций за
+            # пустой каталог.
             self.session.refresh(row)
-            return self._baseline_rows(row.id)
+            return self._require_written_baseline(row)
 
         for product in products:
             self.session.add(
@@ -165,7 +207,19 @@ class CatalogSyncUseCase:
         row = self._own_session(seller_id, session_id)
         if row.baseline_created_at is None:
             raise BaselineNotReadyError(f"У сессии {session_id} ещё нет снимка")
-        return self._baseline_rows(row.id)
+        return self._require_written_baseline(row)
+
+    def _require_written_baseline(self, row: CatalogSyncSession) -> list[CatalogSyncBaseline]:
+        """Снимок отмечен — значит строки обязаны быть. Пусто означает одно из
+        двух: его дописывает другая транзакция либо он уже убран очисткой у
+        завершённой сессии. И то и другое честнее сообщить, чем отдать пустой
+        каталог под видом снимка."""
+        rows = self._baseline_rows(row.id)
+        if not rows:
+            raise BaselineInProgressError(
+                f"Снимок сессии {row.session_id} недоступен: создаётся либо уже удалён"
+            )
+        return rows
 
     # ── Внутреннее ───────────────────────────────────────────────────────────
 
@@ -205,6 +259,13 @@ class CatalogSyncUseCase:
         baseline = {b.seller_product_id: b.version for b in self._baseline_rows(row.id)}
         current = {p.id: p.version for p in self.seller_product_repository.list_by_seller(row.seller_id)}
         return baseline != current
+
+    def _has_baseline_rows(self, session_row_id: int) -> bool:
+        return bool(
+            self.session.query(
+                exists().where(CatalogSyncBaseline.session_id == session_row_id)
+            ).scalar()
+        )
 
     def _baseline_rows(self, session_row_id: int) -> list[CatalogSyncBaseline]:
         return (

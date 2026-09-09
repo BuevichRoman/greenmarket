@@ -63,10 +63,12 @@ from app.publication.seller_access import SellerAccess, resolve_seller_access
 from app.publication.seller_activation import activate_seller
 from app.publication.seller_catalog_publisher import SellerCatalogPublisher
 from app.sync.errors import (
+    BaselineInProgressError,
     BaselineNotReadyError,
     SheetCatalogMismatchError,
     SyncSessionExpiredError,
     SyncSessionNotFoundError,
+    SyncSessionNotInvalidatableError,
 )
 
 router = APIRouter(prefix="/api/v1/seller", tags=["seller"])
@@ -619,6 +621,8 @@ def create_sync_baseline(
         return error_response(409, "SYNC_SESSION_NOT_USABLE", str(exc))
     except SheetCatalogMismatchError as exc:
         return error_response(409, "CATALOG_SHEET_MISMATCH", str(exc))
+    except BaselineInProgressError as exc:
+        return error_response(409, "BASELINE_IN_PROGRESS", str(exc))
 
     session.commit()
     state = use_case.load_session(access.seller_id, session_id)
@@ -646,6 +650,8 @@ def get_sync_baseline(
         return _sync_session_not_found()
     except BaselineNotReadyError as exc:
         return error_response(404, "BASELINE_NOT_READY", str(exc))
+    except BaselineInProgressError as exc:
+        return error_response(409, "BASELINE_IN_PROGRESS", str(exc))
 
     return BaselineResponse(
         session_id=session_id,
@@ -669,5 +675,7 @@ def invalidate_sync_session(
         use_case.invalidate(access.seller_id, session_id)
     except SyncSessionNotFoundError:
         return _sync_session_not_found()
+    except SyncSessionNotInvalidatableError as exc:
+        return error_response(409, "SYNC_SESSION_COMPLETED", str(exc))
     session.commit()
     return _session_response(use_case.load_session(access.seller_id, session_id))

@@ -16,3 +16,13 @@ class SheetCatalogMismatchError(Exception):
 
 class BaselineNotReadyError(Exception):
     """У сессии ещё нет снимка."""
+
+
+class BaselineInProgressError(Exception):
+    """Снимок отмечен, но строк нет: его дописывает другая транзакция либо он
+    уже убран очисткой. Пустой снимок отдавать нельзя — клиент принял бы его
+    за пустой каталог."""
+
+
+class SyncSessionNotInvalidatableError(Exception):
+    """Завершённую публикацией сессию нельзя объявить брошенной."""
