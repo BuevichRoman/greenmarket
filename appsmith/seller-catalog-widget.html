@@ -23,6 +23,11 @@
       хост загружает их (POST /api/v1/photos) и подменяет ссылками.
   model.seller   : { name, place }   — необязательно
   model.loading  : boolean           — необязательно
+  model.readOnly : boolean           — необязательно; true = витрина без записи:
+      хост не сохраняет правки (события ниже ни к чему не привязаны), поэтому
+      быстрое редактирование, карточка и «Опубликовать» отключены, а посетитель
+      видит об этом баннер. Без флага виджет считает, что хост правки сохраняет,
+      и после «Опубликовать» показывает то, что вернул сервер.
 
   События (перед каждым в model кладётся pending с полезной нагрузкой):
       onPatchField   pending = { id, field: "price"|"stock", value }
@@ -399,6 +404,8 @@ select,input,textarea{font:inherit;color:inherit}
 /* ── подсказка ──────────────────────────────────────────────────── */
 .hint{display:flex;align-items:center;gap:12px;padding:12px 16px;margin-top:10px;flex-wrap:wrap;
   background:var(--green-soft);border:1px solid var(--green-line);border-radius:var(--radius)}
+.hint.ro{background:#fffbeb;border-color:#fde68a}
+.hint.ro p{color:#92400e}
 .hint b{display:block;font-size:13px}
 .hint p{margin:2px 0 0;font-size:12px;color:#3f6212}
 .hint kbd{background:#fff;border:1px solid var(--green-line);border-bottom-width:2px;border-radius:5px;
@@ -442,6 +449,8 @@ tbody tr.dirty{background:#fffdf5}
 .qedit{display:inline-flex;align-items:baseline;gap:5px;border:1px solid transparent;border-radius:8px;
   padding:5px 8px;background:transparent;min-width:96px}
 .qedit:hover{border-color:var(--line);background:#fff}
+.qedit.static{cursor:default}
+.qedit.static:hover{border-color:transparent;background:transparent}
 .qedit .val{font-weight:700;font-size:14px}
 .qedit .suf{font-size:11px;color:var(--muted)}
 .qedit .tag{font-size:10px;color:#94a3b8;opacity:0;transition:opacity .1s}
@@ -485,6 +494,7 @@ tbody tr.dirty{background:#fffdf5}
 .modal{background:#fff;border-radius:16px;width:min(660px,100%);box-shadow:0 24px 60px rgba(15,23,42,.25)}
 .modal-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
 .modal-body{padding:14px 18px;display:grid;gap:10px}
+.modal.ro .modal-body{pointer-events:none;opacity:.85} /* просмотр: поля и фото-инструменты не реагируют */
 .modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--line)}
 .photobox{display:flex;gap:14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;
   background:var(--slate-soft)}
@@ -882,6 +892,8 @@ label.f textarea{resize:vertical;min-height:48px}
     var base = b[0], setBase = b[1];
     var l = useState(false), loading = l[0], setLoading = l[1];
     var o = useState({}), overrides = o[0], setOverrides = o[1];
+    var r = useState(!!(hostApi() && hostApi().model && hostApi().model.readOnly));
+    var readOnly = r[0], setReadOnly = r[1];
 
     var syncFromHost = useCallback(function () {
       var host = hostApi();
@@ -889,6 +901,7 @@ label.f textarea{resize:vertical;min-height:48px}
       var m = host.model || {};
       setBase(adapt(m.products || []));
       setLoading(!!m.loading);
+      setReadOnly(!!m.readOnly);
     }, []);
 
     var h = useState(!!hostApi()), hostReady = h[0], setHostReady = h[1];
@@ -932,7 +945,7 @@ label.f textarea{resize:vertical;min-height:48px}
     }
 
     return {
-      products: products, loading: loading,
+      products: products, loading: loading, readOnly: readOnly,
       seller: (hostApi() && hostApi().model && hostApi().model.seller) ||
               { name: 'Фермерское хозяйство «Араз»', place: 'Торговое место #14' },
 
@@ -1085,6 +1098,12 @@ label.f textarea{resize:vertical;min-height:48px}
       next ? props.onNext() : props.onExit();
     }
 
+    if (props.readOnly) {
+      return html`<span className="qedit static">
+        <span className="val">${num(props.value)}</span>
+        <span className="suf">${props.suffix}</span>
+      </span>`;
+    }
     if (!active) {
       return html`<button className="qedit" title="Нажмите для быстрого изменения (Enter — сохранить)"
                           onClick=${props.onOpen}>
@@ -1276,7 +1295,7 @@ label.f textarea{resize:vertical;min-height:48px}
     function makeCover(i) { var next = photos.slice(), one = next.splice(i, 1)[0]; setPhotos([one].concat(next)); }
 
     return html`<div className="overlay" onMouseDown=${function (e) { if (e.target === e.currentTarget) props.onClose(); }}>
-      <div className="modal" ref=${boxRef} style=${{ marginTop: top + 'px' }}>
+      <div className=${'modal' + (props.readOnly ? ' ro' : '')} ref=${boxRef} style=${{ marginTop: top + 'px' }}>
         <div className="modal-head">
           <b style=${{ fontSize: '16px' }}>${props.isNew ? 'Новый товар' : 'Карточка товара'}</b>
           ${!props.isNew && html`<span className="idchip">ID: ${p.id}</span>`}
@@ -1353,9 +1372,9 @@ label.f textarea{resize:vertical;min-height:48px}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick=${props.onClose}>Закрыть</button>
-          <button className="btn btn-primary" onClick=${function () {
+          ${!props.readOnly && html`<button className="btn btn-primary" onClick=${function () {
             props.onSave(Object.assign({}, form, { price: parseFloat(form.price) || 0, stock: parseFloat(form.stock) || 0 }));
-          }}>${props.isNew ? 'Добавить товар' : 'Сохранить изменения'}</button>
+          }}>${props.isNew ? 'Добавить товар' : 'Сохранить изменения'}</button>`}
         </div>
       </div>
     </div>`;
@@ -1425,6 +1444,7 @@ label.f textarea{resize:vertical;min-height:48px}
       var isOn = !!editing && editing.id === p.id && editing.field === field;
       return html`<${QuickEdit}
         active=${isOn}
+        readOnly=${host.readOnly}
         value=${p[field]}
         suffix=${field === 'price' ? '₽' : p.unit}
         onOpen=${function () { setEditing({ id: p.id, field: field }); }}
@@ -1469,28 +1489,33 @@ label.f textarea{resize:vertical;min-height:48px}
         </div>
         <div className="headactions">
           ${dirty.length > 0 && html`<span className="btn btn-warn">● Есть изменения (${dirty.length})</span>`}
-          <button className="btn btn-primary" disabled=${dirty.length === 0}
+          ${!host.readOnly && html`<button className="btn btn-primary" disabled=${dirty.length === 0}
             title="Опубликовать все изменённые цены и остатки в каталог витрины"
             onClick=${function () {
               host.publish(dirty.map(function (p) { return p.id; }));
               say('Опубликовано позиций: ' + dirty.length);
-            }}>➤ Опубликовать</button>
-          <button className="btn btn-dark" onClick=${function (e) {
+            }}>➤ Опубликовать</button>`}
+          ${!host.readOnly && html`<button className="btn btn-dark" onClick=${function (e) {
             var r = e.currentTarget.getBoundingClientRect();
             setAnchor(Math.max(12, Math.round(r.top + window.scrollY - 8)));
             setOpenId(null); setCreating(true);
-          }}>+ Добавить товар</button>
+          }}>+ Добавить товар</button>`}
           <button className="icon-btn" title="Сбросить демо-данные к исходному состоянию"
             onClick=${function () { host.refresh(); setEditing(null); say('Данные перезагружены'); }}>⟳</button>
         </div>
       </div>
 
-      <div className="hint">
-        <span style=${{ fontSize: '18px' }}>✅</span>
-        <div>
-          <b>Быстрое рабочее место: кликните на любую цену или остаток для редактирования</b>
-          <p>Нажмите <kbd>Enter</kbd> для сохранения и автоматического перехода к следующему полю (без открытия карточек).</p>
-        </div>
+      <div className=${'hint' + (host.readOnly ? ' ro' : '')}>
+        <span style=${{ fontSize: '18px' }}>${host.readOnly ? '👁' : '✅'}</span>
+        ${host.readOnly
+          ? html`<div>
+              <b>Демо-витрина: только просмотр</b>
+              <p>Цены и остатки здесь изменить нельзя — правки не сохраняются на сервере. Редактирование и публикация доступны в кабинете продавца после активации доступа.</p>
+            </div>`
+          : html`<div>
+              <b>Быстрое рабочее место: кликните на любую цену или остаток для редактирования</b>
+              <p>Нажмите <kbd>Enter</kbd> для сохранения и автоматического перехода к следующему полю (без открытия карточек).</p>
+            </div>`}
         <div className="counts">
           <span className="count">В наличии: <b>${inStock}</b></span>
           <span className="count">Закончились (0): <b>${outStock}</b></span>
@@ -1549,8 +1574,8 @@ label.f textarea{resize:vertical;min-height:48px}
               <thead><tr>
                 <th style=${{ width: '64px' }}>Фото</th>
                 <th>Товар / артикул</th>
-                <th>Цена<span className="fast">быстрый ввод</span></th>
-                <th>Остаток<span className="fast">быстрый ввод</span></th>
+                <th>Цена${!host.readOnly && html`<span className="fast">быстрый ввод</span>`}</th>
+                <th>Остаток${!host.readOnly && html`<span className="fast">быстрый ввод</span>`}</th>
                 <th>Ед.</th>
                 <th>Статус</th>
                 <th style=${{ textAlign: 'right' }}>Карточка</th>
@@ -1598,7 +1623,7 @@ label.f textarea{resize:vertical;min-height:48px}
       </div>
 
       ${openProduct && html`<${ProductModal} product=${openProduct} anchor=${anchor}
-        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${creating}
+        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${creating} readOnly=${host.readOnly}
         onClose=${function () { setOpenId(null); setCreating(false); }}
         onSave=${function (prod) {
           if (creating) { host.addProduct(prod); setCreating(false); say('Товар добавлен в список'); }
