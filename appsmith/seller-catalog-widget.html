@@ -11,30 +11,34 @@
   ─────────────────────────────────────────────────────────────────────────────
   КОНТРАКТ С ХОСТОМ (единственное место, которое меняется при подключении к API)
 
-  model.products : массив товаров, поля — как в Seller Catalog API:
-      id, global_product_id, product_name, catalog_name, group, price, stock, unit,
-      publication_status ("PUBLISHED" | "DIRTY" | "UNPUBLISHED"),
-      moderation_status ("RESOLVED" | "WAIT_PRODUCT"),
-      has_photo, photo_url, description, seller_sku, origin_country,
-      delivery_date, updated_at
-      photos : массив URL в порядке показа (sort_order на стороне платформы);
-      photo_url — первый из них, он же миниатюра в списке. Добавленные
-      в карточке файлы приходят в onSaveProduct внутри photos как data URL —
-      хост загружает их (POST /api/v1/photos) и подменяет ссылками.
+  model.products : строки GET /api/v1/seller/products (items) как есть — виджет
+      сам приводит их к своей модели (fromApi). Понимает и старую форму
+      публичного каталога (seller_product_id), но там нет version, и правки
+      через неё невозможны.
   model.seller   : { name, place }   — необязательно
   model.loading  : boolean           — необязательно
   model.readOnly : boolean           — необязательно; true = витрина без записи:
-      хост не сохраняет правки (события ниже ни к чему не привязаны), поэтому
-      быстрое редактирование, карточка и «Опубликовать» отключены, а посетитель
-      видит об этом баннер. Без флага виджет считает, что хост правки сохраняет,
-      и после «Опубликовать» показывает то, что вернул сервер.
+      быстрое редактирование отключено, посетитель видит об этом баннер.
+  model.patchError : { id, field, message, at } — необязательно; хост кладёт
+      сюда ответ сервера, если PATCH не прошёл (409 CATALOG_CHANGED, 422…).
+      `at` — метка времени, по ней виджет отличает новую ошибку от уже
+      показанной. Ячейка откатывается к серверному значению, текст — тостом.
+
+  Правка цены/остатка — мгновенная, без «Опубликовать»: в Seller Catalog API
+  нет пакетной публикации, PATCH сразу меняет то, что видит покупатель.
+  Ячейка показывает введённое значение как «сохраняется», пока хост не
+  перечитает список: строка с новой version = сервер принял; patchError с
+  этим id/field = отклонил. Если за 15 с не пришло ни того, ни другого —
+  откат и тост «ответ сервера не получен»: молча считать правку сохранённой
+  нельзя, именно так терялся остаток в первой версии виджета.
 
   События (перед каждым в model кладётся pending с полезной нагрузкой):
-      onPatchField   pending = { id, field: "price"|"stock", value }
-      onSaveProduct  pending = { product }
-      onPublish      pending = { ids }
-      onAddProduct   pending = {}
+      onPatchField   pending = { id, field: "price"|"stock", value, expected_version }
+                     хост: PATCH /seller/products/{id} { [field]: value, expected_version },
+                     затем перечитать список; при ошибке — model.patchError + перечитать.
       onRefresh      pending = {}
+  Карточка товара в этой версии — только просмотр; сохранение карточки, фото
+  и создание позиции — отдельные эндпоинты, подключаются следующей итерацией.
   ─────────────────────────────────────────────────────────────────────────────
 -->
 <meta charset="utf-8">
@@ -434,7 +438,7 @@ thead .fast{display:inline-flex;align-items:center;gap:4px;margin-left:6px;text-
 tbody td{padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
 tbody tr:hover{background:#fafcfd}
-tbody tr.dirty{background:#fffdf5}
+tbody tr.saving{background:#fffdf5}
 .thumb{width:44px;height:44px;border-radius:9px;object-fit:cover;border:1px solid var(--line);display:block}
 .thumb-empty{width:44px;height:44px;border-radius:9px;border:1px dashed var(--line);background:var(--slate-soft);
   display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:16px}
@@ -455,6 +459,7 @@ tbody tr.dirty{background:#fffdf5}
 .qedit .suf{font-size:11px;color:var(--muted)}
 .qedit .tag{font-size:10px;color:#94a3b8;opacity:0;transition:opacity .1s}
 .qedit:hover .tag{opacity:1}
+.qedit .tag.on{opacity:1;color:var(--amber-ink)}
 .qinput{width:96px;border:1px solid var(--amber);border-radius:8px;padding:5px 8px;font-weight:700;
   background:var(--amber-soft);outline:none}
 
@@ -463,7 +468,6 @@ tbody tr.dirty{background:#fffdf5}
 .badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;
   border:1px solid transparent;white-space:nowrap}
 .b-pub{background:var(--green-soft);border-color:var(--green-line);color:var(--green-ink)}
-.b-dirty{background:var(--amber-soft);border-color:var(--amber-line);color:var(--amber-ink)}
 .b-draft{background:var(--slate-soft);border-color:var(--slate-line);color:#475569}
 .b-out{background:var(--red-soft);border-color:var(--red-line);color:var(--red)}
 .b-wait{background:var(--violet-soft);border-color:#c7d2fe;color:var(--violet-ink)}
@@ -674,7 +678,7 @@ label.f textarea{resize:vertical;min-height:48px}
             "price": 390,
             "stock": 15,
             "unit": "кг",
-            "publication_status": "DIRTY",
+            "publication_status": "PUBLISHED",
             "moderation_status": "RESOLVED",
             "has_photo": true,
             "photo_url": "https://images.unsplash.com/photo-1528821128474-27f963b062bf?w=200&auto=format&fit=crop&q=80",
@@ -838,25 +842,28 @@ label.f textarea{resize:vertical;min-height:48px}
         }
     ];
 
-  /* Адаптер Seller Catalog API → модель виджета.
-     Соответствие полей: seller_product_id→id, name→product_name, group_name→group,
-     supply_date→delivery_date, photos[0]→photo_url.
-     Два поля публичный каталог не отдаёт вовсе: seller_sku и признак публикации —
-     их закрывает новый Seller Catalog API из ТЗ. */
+  /* Адаптер API → модель виджета. Две формы строки:
+     - GET /seller/products (Seller Catalog API): id, seller_name, product_name,
+       product_group_name, is_published, moderation_status, version. Фотографий
+       в списке нет — has_photo остаётся null («неизвестно»), а не false.
+     - публичный /catalog/sellers/{id}/products: seller_product_id, name,
+       group_name, photos. Без version — только показ. */
   function fromApi(row) {
+    var admin = row.version !== undefined;
     var photos = row.photos || [];
     return {
-      id: String(row.seller_product_id),
+      id: String(admin ? row.id : row.seller_product_id),
+      version: admin ? row.version : null,
       global_product_id: row.product_id != null ? String(row.product_id) : null,
-      product_name: row.name,
-      catalog_name: row.catalog_name || null,
-      group: row.group_name || '',
+      product_name: admin ? row.seller_name : row.name,
+      catalog_name: (admin ? row.product_name : row.catalog_name) || null,
+      group: (admin ? row.product_group_name : row.group_name) || '',
       price: parseFloat(row.price),
       stock: parseFloat(row.stock),
       unit: row.unit,
-      publication_status: row.publication_status || 'PUBLISHED',
-      moderation_status: row.product_id != null ? 'RESOLVED' : 'WAIT_PRODUCT',
-      has_photo: photos.length > 0,
+      publication_status: admin ? (row.is_published ? 'PUBLISHED' : 'UNPUBLISHED') : 'PUBLISHED',
+      moderation_status: (admin ? row.moderation_status === 'RESOLVED' : row.product_id != null) ? 'RESOLVED' : 'WAIT_PRODUCT',
+      has_photo: admin ? null : photos.length > 0,
       photos: photos.slice(),
       photo_url: photos[0] || '',
       description: row.description,
@@ -869,7 +876,7 @@ label.f textarea{resize:vertical;min-height:48px}
 
   function adapt(rows) {
     return (rows || []).map(function (r) {
-      return r && r.seller_product_id !== undefined ? fromApi(r) : r;
+      return r && (r.seller_product_id !== undefined || r.version !== undefined) ? fromApi(r) : r;
     });
   }
 
@@ -891,9 +898,15 @@ label.f textarea{resize:vertical;min-height:48px}
     );
     var base = b[0], setBase = b[1];
     var l = useState(false), loading = l[0], setLoading = l[1];
-    var o = useState({}), overrides = o[0], setOverrides = o[1];
+    /* Незавершённые правки: ключ id:field → { value, version, at }. Живут,
+       пока сервер не ответил (см. контракт в шапке файла). */
+    var o = useState({}), pending = o[0], setPending = o[1];
+    var pendingRef = useRef(pending);
+    pendingRef.current = pending;
     var r = useState(!!(hostApi() && hostApi().model && hostApi().model.readOnly));
     var readOnly = r[0], setReadOnly = r[1];
+    var pe = useState(null), patchError = pe[0], setPatchError = pe[1];
+    var nt = useState(null), notice = nt[0], setNotice = nt[1];
 
     var syncFromHost = useCallback(function () {
       var host = hostApi();
@@ -902,7 +915,36 @@ label.f textarea{resize:vertical;min-height:48px}
       setBase(adapt(m.products || []));
       setLoading(!!m.loading);
       setReadOnly(!!m.readOnly);
+      setPatchError(m.patchError || null);
     }, []);
+
+    function dropPending(key) {
+      setPending(function (n) {
+        if (!n[key]) return n;
+        var next = Object.assign({}, n); delete next[key]; return next;
+      });
+    }
+
+    /* Сервер ответил списком: строки с новой version закрывают свои правки. */
+    useEffect(function () {
+      var byId = {};
+      base.forEach(function (p) { byId[p.id] = p; });
+      Object.keys(pendingRef.current).forEach(function (key) {
+        var row = byId[key.split(':')[0]];
+        if (!row || row.version !== pendingRef.current[key].version) dropPending(key);
+      });
+    }, [base]);
+
+    /* Сервер отклонил правку: откат к серверному значению и текст тостом.
+       Одну и ту же ошибку хост может прислать при нескольких синхронизациях —
+       различаем по метке времени. */
+    var seenErrorAt = useRef(null);
+    useEffect(function () {
+      if (!patchError || patchError.at === seenErrorAt.current) return;
+      seenErrorAt.current = patchError.at;
+      dropPending(String(patchError.id) + ':' + patchError.field);
+      setNotice({ text: patchError.message || 'Не удалось сохранить', at: Date.now() });
+    }, [patchError]);
 
     var h = useState(!!hostApi()), hostReady = h[0], setHostReady = h[1];
 
@@ -927,57 +969,57 @@ label.f textarea{resize:vertical;min-height:48px}
       if (typeof host.onModelChange === 'function') host.onModelChange(syncFromHost);
     }, [hostReady, syncFromHost]);
 
-    /* Правки не теряются при обновлении модели: хост отдаёт исходные строки,
-       наложение живёт отдельно и переживает перезалив списка. */
+    /* Показ: серверные строки, поверх — введённое, но ещё не подтверждённое.
+       Такая строка помечена saving, чтобы было видно, что ответа ещё нет. */
     var products = useMemo(function () {
       return base.map(function (p) {
-        var ov = overrides[p.id];
-        return ov ? Object.assign({}, p, ov, { publication_status: 'DIRTY' }) : p;
+        var out = p, saving = false;
+        ['price', 'stock'].forEach(function (f) {
+          var pd = pending[p.id + ':' + f];
+          if (pd) { out = Object.assign({}, out); out[f] = pd.value; saving = true; }
+        });
+        return saving ? Object.assign(out, { saving: true }) : p;
       });
-    }, [base, overrides]);
+    }, [base, pending]);
 
-    function override(id, patch) {
-      setOverrides(function (o2) {
-        var n = Object.assign({}, o2);
-        n[id] = Object.assign({}, n[id], patch);
-        return n;
-      });
-    }
+    var PATCH_TIMEOUT_MS = 15000;
 
     return {
-      products: products, loading: loading, readOnly: readOnly,
+      products: products, loading: loading, readOnly: readOnly, notice: notice,
       seller: (hostApi() && hostApi().model && hostApi().model.seller) ||
               { name: 'Фермерское хозяйство «Араз»', place: 'Торговое место #14' },
 
       patchField: function (id, field, value) {
-        var patch = {}; patch[field] = value;
-        override(id, patch);
-        emit('onPatchField', { id: id, field: field, value: value });
-      },
-      saveProduct: function (product) {
-        override(product.id, product);
-        emit('onSaveProduct', { product: product });
-      },
-      publish: function (ids) {
-        setOverrides(function (o2) {
-          var n = Object.assign({}, o2);
-          ids.forEach(function (id) { delete n[id]; });
-          return n;
-        });
-        setBase(function (list) {
-          return list.map(function (p) {
-            return ids.indexOf(p.id) < 0 ? p : Object.assign({}, p, { publication_status: 'PUBLISHED' });
+        var row = base.filter(function (p) { return p.id === id; })[0];
+        if (!row) return;
+        if (!hostApi()) {
+          /* Вне Appsmith сервера нет — правка применяется к демо-строкам сразу. */
+          setBase(function (list) {
+            return list.map(function (p) {
+              if (p.id !== id) return p;
+              var n = Object.assign({}, p); n[field] = value; return n;
+            });
           });
+          emit('onPatchField', { id: id, field: field, value: value, expected_version: row.version });
+          return;
+        }
+        var key = id + ':' + field, at = Date.now();
+        setPending(function (n) {
+          var next = Object.assign({}, n);
+          next[key] = { value: value, version: row.version, at: at };
+          return next;
         });
-        emit('onPublish', { ids: ids });
-      },
-      addProduct: function (product) {
-        var draft = Object.assign({ id: 'new-' + Date.now() }, product);
-        setBase(function (list) { return [draft].concat(list); });
-        emit('onAddProduct', { product: product });
+        emit('onPatchField', { id: id, field: field, value: value, expected_version: row.version });
+        setTimeout(function () {
+          var still = pendingRef.current[key];
+          if (still && still.at === at) {
+            dropPending(key);
+            setNotice({ text: 'Не удалось сохранить: ответ сервера не получен', at: Date.now() });
+          }
+        }, PATCH_TIMEOUT_MS);
       },
       refresh: function () {
-        setOverrides({});
+        setPending({});
         if (!hostApi()) { setBase(EMBEDDED ? [] : DEMO_PRODUCTS); return; }
         emit('onRefresh', {});
       }
@@ -1007,7 +1049,6 @@ label.f textarea{resize:vertical;min-height:48px}
      ни в БД, ни в валидаторе, ни в ТЗ — поэтому не выдумываем его здесь. */
   var STATUS_OPTIONS = [
     { value: 'PUBLISHED', label: 'Опубликован' },
-    { value: 'DIRTY', label: 'Есть изменения' },
     { value: 'UNPUBLISHED', label: 'Не опубликован' }
   ];
   var MAX_PHOTO_BYTES = 10 * 1024 * 1024;
@@ -1060,15 +1101,13 @@ label.f textarea{resize:vertical;min-height:48px}
       out.push(compact
         ? html`<span key="s" className="badge b-pub ico" title="Опубликован">✓</span>`
         : html`<span key="s" className="badge b-pub">✓ Опубликован</span>`);
-    else if (p.publication_status === 'DIRTY')
-      out.push(html`<span key="s" className="badge b-dirty">● Есть изменения</span>`);
     else
       out.push(html`<span key="s" className="badge b-draft">◌ Черновик / Не опубликован</span>`);
     if (Number(p.stock) === 0)
       out.push(html`<span key="o" className="badge b-out">⚠ Закончился (0)</span>`);
     if (p.moderation_status === 'WAIT_PRODUCT')
       out.push(html`<span key="w" className="badge b-wait">◇ Ожидает сопоставления</span>`);
-    if (!p.has_photo)
+    if (p.has_photo === false)
       out.push(html`<span key="f" className="badge b-draft">Нет фото</span>`);
     return html`<div className=${'badges' + (compact ? ' inline' : '')}>${out}</div>`;
   }
@@ -1109,7 +1148,7 @@ label.f textarea{resize:vertical;min-height:48px}
                           onClick=${props.onOpen}>
         <span className="val">${num(props.value)}</span>
         <span className="suf">${props.suffix}</span>
-        <span className="tag">изм.</span>
+        <span className=${'tag' + (props.saving ? ' on' : '')}>${props.saving ? 'сохраняем…' : 'изм.'}</span>
       </button>`;
     }
     return html`<input ref=${ref} className="qinput" value=${draft} inputMode="decimal"
@@ -1395,17 +1434,18 @@ label.f textarea{resize:vertical;min-height:48px}
     var ps = useState(50), pageSize = ps[0], setPageSize = ps[1];
     var op = useState(null), openId = op[0], setOpenId = op[1];
     var an = useState(12), anchor = an[0], setAnchor = an[1];
-    var cr = useState(false), creating = cr[0], setCreating = cr[1];
     var ed = useState(null), editing = ed[0], setEditing = ed[1];
     var ts = useState(''), toast = ts[0], setToast = ts[1];
 
-    function say(m) { setToast(m); setTimeout(function () { setToast(''); }, 1800); }
+    function say(m) { setToast(m); setTimeout(function () { setToast(''); }, 2600); }
+
+    /* ошибки сохранения приходят из useHost — показываем тем же тостом */
+    useEffect(function () { if (host.notice) say(host.notice.text); }, [host.notice]);
 
     /* карточка открывается у той строки, по которой кликнули */
     function openCard(id, e) {
       var r = e && e.currentTarget ? e.currentTarget.getBoundingClientRect() : null;
       setAnchor(r ? Math.max(12, Math.round(r.top + window.scrollY - 56)) : 12);
-      setCreating(false);
       setOpenId(id);
     }
 
@@ -1427,7 +1467,6 @@ label.f textarea{resize:vertical;min-height:48px}
     var cur = Math.min(page, pages);
     var slice = filtered.slice((cur - 1) * pageSize, cur * pageSize);
 
-    var dirty = host.products.filter(function (p) { return p.publication_status === 'DIRTY'; });
     var inStock = host.products.filter(function (p) { return Number(p.stock) > 0; }).length;
     var outStock = host.products.filter(function (p) { return Number(p.stock) === 0; }).length;
     var waiting = host.products.filter(function (p) { return p.moderation_status === 'WAIT_PRODUCT'; }).length;
@@ -1445,6 +1484,7 @@ label.f textarea{resize:vertical;min-height:48px}
       return html`<${QuickEdit}
         active=${isOn}
         readOnly=${host.readOnly}
+        saving=${!!p.saving}
         value=${p[field]}
         suffix=${field === 'price' ? '₽' : p.unit}
         onOpen=${function () { setEditing({ id: p.id, field: field }); }}
@@ -1456,14 +1496,7 @@ label.f textarea{resize:vertical;min-height:48px}
     var groupList = useMemo(function () { return groupsOf(host.products); }, [host.products]);
     var countryList = useMemo(function () { return originsOf(host.products); }, [host.products]);
 
-    var blank = {
-      id: null, global_product_id: null, product_name: '', catalog_name: null,
-      group: groupList[0], price: '', stock: '', unit: 'кг',
-      publication_status: 'UNPUBLISHED', moderation_status: 'WAIT_PRODUCT',
-      has_photo: false, photos: [], photo_url: '', description: '', seller_sku: '',
-      origin_country: '', delivery_date: new Date().toISOString().slice(0, 10)
-    };
-    var openProduct = creating ? blank : host.products.find(function (p) { return p.id === openId; });
+    var openProduct = host.products.find(function (p) { return p.id === openId; });
 
     return html`<div className=${'wrap' + (narrow ? ' narrow' : '')}>
 
@@ -1488,19 +1521,7 @@ label.f textarea{resize:vertical;min-height:48px}
           <div className="sub">${host.seller.name} • ${host.seller.place}</div>
         </div>
         <div className="headactions">
-          ${dirty.length > 0 && html`<span className="btn btn-warn">● Есть изменения (${dirty.length})</span>`}
-          ${!host.readOnly && html`<button className="btn btn-primary" disabled=${dirty.length === 0}
-            title="Опубликовать все изменённые цены и остатки в каталог витрины"
-            onClick=${function () {
-              host.publish(dirty.map(function (p) { return p.id; }));
-              say('Опубликовано позиций: ' + dirty.length);
-            }}>➤ Опубликовать</button>`}
-          ${!host.readOnly && html`<button className="btn btn-dark" onClick=${function (e) {
-            var r = e.currentTarget.getBoundingClientRect();
-            setAnchor(Math.max(12, Math.round(r.top + window.scrollY - 8)));
-            setOpenId(null); setCreating(true);
-          }}>+ Добавить товар</button>`}
-          <button className="icon-btn" title="Сбросить демо-данные к исходному состоянию"
+          <button className="icon-btn" title="Перечитать каталог с сервера"
             onClick=${function () { host.refresh(); setEditing(null); say('Данные перезагружены'); }}>⟳</button>
         </div>
       </div>
@@ -1513,8 +1534,8 @@ label.f textarea{resize:vertical;min-height:48px}
               <p>Цены и остатки здесь изменить нельзя — правки не сохраняются на сервере. Редактирование и публикация доступны в кабинете продавца после активации доступа.</p>
             </div>`
           : html`<div>
-              <b>Быстрое рабочее место: кликните на любую цену или остаток для редактирования</b>
-              <p>Нажмите <kbd>Enter</kbd> для сохранения и автоматического перехода к следующему полю (без открытия карточек).</p>
+              <b>Кликните на цену или остаток, чтобы изменить</b>
+              <p><kbd>Enter</kbd> — сохранить и перейти к следующему полю. Изменение уходит на сервер сразу и сразу видно покупателю.</p>
             </div>`}
         <div className="counts">
           <span className="count">В наличии: <b>${inStock}</b></span>
@@ -1548,7 +1569,7 @@ label.f textarea{resize:vertical;min-height:48px}
       ${mobile
         ? html`<div className="cards">
             ${slice.map(function (p) {
-              return html`<div key=${p.id} className=${'card pcard' + (p.publication_status === 'DIRTY' ? ' dirty' : '')}>
+              return html`<div key=${p.id} className=${'card pcard' + (p.saving ? ' saving' : '')}>
                 <${Thumb} p=${p} />
                 <div className="grow">
                   <div className="pname-row">
@@ -1582,7 +1603,7 @@ label.f textarea{resize:vertical;min-height:48px}
               </tr></thead>
               <tbody>
                 ${slice.map(function (p) {
-                  return html`<tr key=${p.id} className=${p.publication_status === 'DIRTY' ? 'dirty' : ''}>
+                  return html`<tr key=${p.id} className=${p.saving ? 'saving' : ''}>
                     <td><${Thumb} p=${p} /></td>
                     <td>
                       <div className="pname">${p.product_name}</div>
@@ -1623,12 +1644,8 @@ label.f textarea{resize:vertical;min-height:48px}
       </div>
 
       ${openProduct && html`<${ProductModal} product=${openProduct} anchor=${anchor}
-        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${creating} readOnly=${host.readOnly}
-        onClose=${function () { setOpenId(null); setCreating(false); }}
-        onSave=${function (prod) {
-          if (creating) { host.addProduct(prod); setCreating(false); say('Товар добавлен в список'); }
-          else { host.saveProduct(prod); setOpenId(null); say('Карточка сохранена'); }
-        }} />`}
+        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${false} readOnly=${true}
+        onClose=${function () { setOpenId(null); }} />`}
 
       ${toast && html`<div className="toast">${toast}</div>`}
     </div>`;
