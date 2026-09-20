@@ -25,9 +25,15 @@
       синхронизированы, публикация книги перезаписывает правки кабинета.
       Нет ссылки (книга не привязана, демо) — ни кнопки, ни предупреждения.
   model.patchError : { id, field, message, at } — необязательно; хост кладёт
-      сюда ответ сервера, если PATCH не прошёл (409 CATALOG_CHANGED, 422…).
-      `at` — метка времени, по ней виджет отличает новую ошибку от уже
-      показанной. Ячейка откатывается к серверному значению, текст — тостом.
+      сюда ответ сервера, если запись не прошла (409 CATALOG_CHANGED, 422…).
+      `field` — "price"/"stock" для быстрого ввода, "card" для карточки,
+      "photo" для загрузки фотографии. `at` — метка времени, по ней виджет
+      отличает новую ошибку от уже показанной. Ячейка откатывается к
+      серверному значению, карточка остаётся открытой, текст — тостом.
+  model.detail : строка GET /api/v1/seller/products/{id} как есть — необязательно;
+      хост кладёт сюда ответ после onOpenCard и после загрузки фотографии.
+      В списке фотографий нет, поэтому карточка берёт их отсюда — пока
+      detail.id совпадает с открытой позицией, иначе показывает «загружаем».
 
   Правка цены/остатка — мгновенная, без «Опубликовать»: в Seller Catalog API
   нет пакетной публикации, PATCH сразу меняет то, что видит покупатель.
@@ -38,12 +44,26 @@
   нельзя, именно так терялся остаток в первой версии виджета.
 
   События (перед каждым в model кладётся pending с полезной нагрузкой):
-      onPatchField   pending = { id, field: "price"|"stock", value, expected_version }
-                     хост: PATCH /seller/products/{id} { [field]: value, expected_version },
+      onPatchField   pending = { id, field: "price"|"stock", value, changes, expected_version }
+                     changes = { [field]: value } — та же форма, что у карточки,
+                     чтобы хосту хватало одного запроса PATCH на оба события.
+                     хост: PATCH /seller/products/{id} { ...changes, expected_version },
                      затем перечитать список; при ошибке — model.patchError + перечитать.
+      onSaveProduct  pending = { id, changes, expected_version }
+                     changes — только изменённые поля в именах API: seller_name,
+                     price, stock, unit, description, origin_country, supply_date,
+                     seller_sku (пустое значение = null, «очистить»).
+                     хост: тот же PATCH; успех виден по новой version в списке —
+                     карточка закрывается сама; ошибка — patchError { field: "card" }.
+      onOpenCard     pending = { id }
+                     хост: GET /seller/products/{id} → model.detail.
+      onUploadPhoto  pending = { id, file: { name, type, data } }, data — data-URL
+                     хост: POST /seller/products/{id}/photos (multipart, поле file),
+                     затем перечитать detail; ошибка — patchError { field: "photo" }.
+                     Удаления и переупорядочивания фотографий в API нет — в
+                     подключённом режиме карточка их и не предлагает.
       onRefresh      pending = {}
-  Карточка товара в этой версии — только просмотр; сохранение карточки, фото
-  и создание позиции — отдельные эндпоинты, подключаются следующей итерацией.
+  Создание позиции — следующей итерацией.
   ─────────────────────────────────────────────────────────────────────────────
 -->
 <meta charset="utf-8">
@@ -876,7 +896,7 @@ label.f textarea{resize:vertical;min-height:48px}
       photos: photos.slice(),
       photo_url: photos[0] || '',
       description: row.description,
-      seller_sku: row.seller_sku || '—',
+      seller_sku: row.seller_sku || '',
       origin_country: row.origin_country || '',
       delivery_date: row.supply_date || '',
       updated_at: row.updated_at || null
@@ -918,6 +938,11 @@ label.f textarea{resize:vertical;min-height:48px}
     var spreadsheetUrl = su[0], setSpreadsheetUrl = su[1];
     var pe = useState(null), patchError = pe[0], setPatchError = pe[1];
     var nt = useState(null), notice = nt[0], setNotice = nt[1];
+    /* Карточка открытой позиции с фотографиями (model.detail) — в списке их нет. */
+    var dt = useState(null), detail = dt[0], setDetail = dt[1];
+    /* Итог сохранения карточки: { id, ok, at }. ok — сервер вернул строку с новой
+       version; иначе — ошибка или таймаут. По нему карточка закрывается. */
+    var cr = useState(null), cardResult = cr[0], setCardResult = cr[1];
 
     var syncFromHost = useCallback(function () {
       var host = hostApi();
@@ -928,6 +953,7 @@ label.f textarea{resize:vertical;min-height:48px}
       setReadOnly(!!m.readOnly);
       setSpreadsheetUrl(m.spreadsheetUrl || '');
       setPatchError(m.patchError || null);
+      setDetail(m.detail && m.detail.id !== undefined ? fromApi(m.detail) : null);
     }, []);
 
     function dropPending(key) {
@@ -942,10 +968,22 @@ label.f textarea{resize:vertical;min-height:48px}
       var byId = {};
       base.forEach(function (p) { byId[p.id] = p; });
       Object.keys(pendingRef.current).forEach(function (key) {
-        var row = byId[key.split(':')[0]];
-        if (!row || row.version !== pendingRef.current[key].version) dropPending(key);
+        var id = key.split(':')[0], field = key.split(':')[1];
+        var row = byId[id];
+        if (!row || row.version !== pendingRef.current[key].version) {
+          dropPending(key);
+          if (field === 'card' && row) setCardResult({ id: id, ok: true, at: Date.now() });
+        }
       });
     }, [base]);
+
+    /* Сервер перечитал карточку после загрузки — фотография на месте. */
+    useEffect(function () {
+      if (!detail) return;
+      Object.keys(pendingRef.current).forEach(function (key) {
+        if (key === detail.id + ':photo') dropPending(key);
+      });
+    }, [detail]);
 
     /* Сервер отклонил правку: откат к серверному значению и текст тостом.
        Одну и ту же ошибку хост может прислать при нескольких синхронизациях —
@@ -955,6 +993,7 @@ label.f textarea{resize:vertical;min-height:48px}
       if (!patchError || patchError.at === seenErrorAt.current) return;
       seenErrorAt.current = patchError.at;
       dropPending(String(patchError.id) + ':' + patchError.field);
+      if (patchError.field === 'card') setCardResult({ id: String(patchError.id), ok: false, at: Date.now() });
       setNotice({ text: patchError.message || 'Не удалось сохранить', at: Date.now() });
     }, [patchError]);
 
@@ -990,15 +1029,40 @@ label.f textarea{resize:vertical;min-height:48px}
           var pd = pending[p.id + ':' + f];
           if (pd) { out = Object.assign({}, out); out[f] = pd.value; saving = true; }
         });
+        var card = pending[p.id + ':card'];
+        if (card) { out = Object.assign({}, out, card.value); saving = true; }
         return saving ? Object.assign(out, { saving: true }) : p;
       });
     }, [base, pending]);
 
     var PATCH_TIMEOUT_MS = 15000;
+    /* Фотография идёт с телефона по мобильной сети — ждём дольше, чем PATCH. */
+    var UPLOAD_TIMEOUT_MS = 60000;
+
+    /* Правка с ожиданием ответа: показываем введённое как «сохраняется», пока
+       сервер не подтвердит новой version (или detail) либо не отклонит. */
+    function track(key, value, version, timeoutMs, onTimeout) {
+      var at = Date.now();
+      setPending(function (n) {
+        var next = Object.assign({}, n);
+        next[key] = { value: value, version: version, at: at };
+        return next;
+      });
+      setTimeout(function () {
+        var still = pendingRef.current[key];
+        if (still && still.at === at) {
+          dropPending(key);
+          if (onTimeout) onTimeout();
+          setNotice({ text: 'Не удалось сохранить: ответ сервера не получен', at: Date.now() });
+        }
+      }, timeoutMs);
+    }
 
     return {
       products: products, loading: loading, readOnly: readOnly, notice: notice,
-      spreadsheetUrl: spreadsheetUrl,
+      spreadsheetUrl: spreadsheetUrl, detail: detail, cardResult: cardResult,
+      connected: !!hostApi(),
+      photoPending: function (id) { return !!pending[id + ':photo']; },
       seller: (hostApi() && hostApi().model && hostApi().model.seller) ||
               { name: 'Фермерское хозяйство «Араз»', place: 'Торговое место #14' },
 
@@ -1016,20 +1080,37 @@ label.f textarea{resize:vertical;min-height:48px}
           emit('onPatchField', { id: id, field: field, value: value, expected_version: row.version });
           return;
         }
-        var key = id + ':' + field, at = Date.now();
-        setPending(function (n) {
-          var next = Object.assign({}, n);
-          next[key] = { value: value, version: row.version, at: at };
-          return next;
+        var changes = {}; changes[field] = value;
+        track(id + ':' + field, value, row.version, PATCH_TIMEOUT_MS);
+        emit('onPatchField', { id: id, field: field, value: value, changes: changes, expected_version: row.version });
+      },
+      /* changes — в именах API (см. контракт); local — те же поля в именах
+         виджета, чтобы строка в списке сразу показала введённое. */
+      saveCard: function (id, changes, local) {
+        var row = base.filter(function (p) { return p.id === id; })[0];
+        if (!row) return;
+        if (!hostApi()) {
+          setBase(function (list) {
+            return list.map(function (p) { return p.id === id ? Object.assign({}, p, local) : p; });
+          });
+          setCardResult({ id: id, ok: true, at: Date.now() });
+          emit('onSaveProduct', { id: id, changes: changes, expected_version: row.version });
+          return;
+        }
+        track(id + ':card', local, row.version, PATCH_TIMEOUT_MS, function () {
+          setCardResult({ id: id, ok: false, at: Date.now() });
         });
-        emit('onPatchField', { id: id, field: field, value: value, expected_version: row.version });
-        setTimeout(function () {
-          var still = pendingRef.current[key];
-          if (still && still.at === at) {
-            dropPending(key);
-            setNotice({ text: 'Не удалось сохранить: ответ сервера не получен', at: Date.now() });
-          }
-        }, PATCH_TIMEOUT_MS);
+        emit('onSaveProduct', { id: id, changes: changes, expected_version: row.version });
+      },
+      openCard: function (id) {
+        if (!hostApi()) return;
+        if (!detail || detail.id !== id) setDetail(null);
+        emit('onOpenCard', { id: id });
+      },
+      uploadPhoto: function (id, file) {
+        if (!hostApi()) return;
+        track(id + ':photo', { name: file.name }, null, UPLOAD_TIMEOUT_MS);
+        emit('onUploadPhoto', { id: id, file: file });
       },
       refresh: function () {
         setPending({});
@@ -1303,7 +1384,15 @@ label.f textarea{resize:vertical;min-height:48px}
     function put(patch) { setForm(function (f) { return Object.assign({}, f, patch); }); }
     function say(m) { if (props.onNotice) props.onNotice(m); }
 
-    var photos = form.photos || (form.photo_url ? [form.photo_url] : []);
+    /* В подключённом режиме фотографии приходят отдельным запросом (detail);
+       пока его нет — null, и карточка честно пишет «загружаем», а не «ни одной». */
+    var connected = !!props.connected;
+    var detailPhotos = connected
+      ? (props.detail && props.detail.id === p.id ? props.detail.photos : null)
+      : null;
+    var photos = connected ? (detailPhotos || []) : (form.photos || (form.photo_url ? [form.photo_url] : []));
+    var photosLoading = connected && detailPhotos === null;
+    var uploading = !!props.uploading;
 
     /* фото хранится списком; первое — обложка, её видно в списке товаров */
     function setPhotos(list) {
@@ -1325,6 +1414,15 @@ label.f textarea{resize:vertical;min-height:48px}
       var files = [].slice.call(e.target.files || []);
       e.target.value = '';
       if (!files.length) return;
+      if (connected) {
+        /* На сервер — по одной: у эндпоинта одно поле file, а очередь на
+           стороне виджета скрыла бы, какая именно из пяти не загрузилась. */
+        var f = files[0];
+        readFile(f).then(function (url) {
+          if (url) props.onUpload({ name: f.name, type: f.type, data: url });
+        });
+        return;
+      }
       Promise.all(files.map(readFile)).then(function (urls) {
         var add = urls.filter(Boolean);
         if (add.length) setPhotos(photos.concat(add));
@@ -1358,28 +1456,29 @@ label.f textarea{resize:vertical;min-height:48px}
           <div className="photos">
             <div className="photos-head">
               <b>Фотографии товара${photos.length ? ' — ' + photos.length : ''}</b>
-              <p>JPEG, PNG или WEBP до 10 МБ. Первая идёт на плитку в каталоге; без фотографий товар не публикуется.</p>
+              <p>JPEG, PNG или WEBP до 10 МБ. Первая идёт на плитку в каталоге; без фотографий товар не публикуется.${connected ? ' Фотография уходит на сервер сразу.' : ''}</p>
             </div>
             <div className="photo-grid">
               ${photos.map(function (url, i) {
                 return html`<div key=${url.slice(0, 64) + i} className="photo-item">
                   <img src=${url} alt=${'Фото ' + (i + 1)} />
                   ${i === 0 && html`<span className="cover">На плитке</span>`}
-                  <div className="photo-tools">
+                  ${!connected && html`<div className="photo-tools">
                     ${i > 0 && html`<button title="Поставить первой" onClick=${function () { makeCover(i); }}>★</button>`}
                     <button title=${'Заменить фото ' + (i + 1)}
                       onClick=${function () { replaceAt.current = i; replaceRef.current && replaceRef.current.click(); }}>⇪</button>
                     <button className="del" title=${'Удалить фото ' + (i + 1)}
                       onClick=${function () { removePhoto(i); }}>✕</button>
-                  </div>
+                  </div>`}
                 </div>`;
               })}
-              <button className="photo-add"
+              ${!props.readOnly && html`<button className="photo-add" disabled=${uploading || photosLoading}
                 onClick=${function () { addRef.current && addRef.current.click(); }}>
-                <span>＋</span><span>Добавить фото</span></button>
+                <span>${uploading ? '…' : '＋'}</span><span>${uploading ? 'Загружаем' : 'Добавить фото'}</span></button>`}
             </div>
-            ${photos.length === 0 && html`<div className="photo-empty">Пока ни одной фотографии — товар не увидят покупатели</div>`}
-            <input ref=${addRef} type="file" accept="image/jpeg,image/png,image/webp" multiple
+            ${photosLoading && html`<div className="photo-empty">Загружаем фотографии…</div>`}
+            ${!photosLoading && photos.length === 0 && html`<div className="photo-empty">Пока ни одной фотографии — товар не увидят покупатели</div>`}
+            <input ref=${addRef} type="file" accept="image/jpeg,image/png,image/webp" multiple=${!connected}
               style=${{ display: 'none' }} onChange=${addPhotos} />
             <input ref=${replaceRef} type="file" accept="image/jpeg,image/png,image/webp"
               style=${{ display: 'none' }} onChange=${replacePhoto} />
@@ -1392,7 +1491,8 @@ label.f textarea{resize:vertical;min-height:48px}
             : 'В общем каталоге позиция ещё не сопоставлена — этим займётся модератор'}</div>
 
           <label className="f"><span>Группа</span>
-            <select value=${form.group} onChange=${set('group')}>
+            <select value=${form.group} onChange=${set('group')} disabled=${connected}
+              title=${connected ? 'Группу задаёт позиция общего каталога' : ''}>
               ${(props.groups || GROUPS_FALLBACK).map(function (g) { return html`<option key=${g}>${g}</option>`; })}
             </select></label>
 
@@ -1424,9 +1524,33 @@ label.f textarea{resize:vertical;min-height:48px}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick=${props.onClose}>Закрыть</button>
-          ${!props.readOnly && html`<button className="btn btn-primary" onClick=${function () {
-            props.onSave(Object.assign({}, form, { price: parseFloat(form.price) || 0, stock: parseFloat(form.stock) || 0 }));
-          }}>${props.isNew ? 'Добавить товар' : 'Сохранить изменения'}</button>`}
+          ${!props.readOnly && html`<button className="btn btn-primary" disabled=${!!props.saving} onClick=${function () {
+            var local = {
+              product_name: (form.product_name || '').trim(),
+              price: parseFloat(String(form.price).replace(',', '.')),
+              stock: parseFloat(String(form.stock).replace(',', '.')),
+              unit: form.unit,
+              seller_sku: (form.seller_sku || '').trim(),
+              delivery_date: form.delivery_date || '',
+              origin_country: (form.origin_country || '').trim(),
+              description: (form.description || '').trim()
+            };
+            if (!local.product_name) return say('Укажите название товара');
+            if (!(local.price >= 0) || !(local.stock >= 0)) return say('Цена и остаток — числа не меньше нуля');
+            /* На сервер — только изменённое, в именах API; пустое = null («очистить»). */
+            var map = { product_name: 'seller_name', price: 'price', stock: 'stock', unit: 'unit',
+                        seller_sku: 'seller_sku', delivery_date: 'supply_date',
+                        origin_country: 'origin_country', description: 'description' };
+            var changes = {}, diff = {};
+            Object.keys(map).forEach(function (k) {
+              var was = k === 'price' || k === 'stock' ? Number(p[k]) : (p[k] || '');
+              if (local[k] === was) return;
+              diff[k] = local[k];
+              changes[map[k]] = k === 'price' || k === 'stock' || local[k] !== '' ? local[k] : null;
+            });
+            if (!Object.keys(changes).length) { say('Изменений нет'); return props.onClose(); }
+            props.onSave(changes, diff);
+          }}>${props.saving ? 'Сохраняем…' : (props.isNew ? 'Добавить товар' : 'Сохранить изменения')}</button>`}
         </div>
       </div>
     </div>`;
@@ -1460,7 +1584,17 @@ label.f textarea{resize:vertical;min-height:48px}
       var r = e && e.currentTarget ? e.currentTarget.getBoundingClientRect() : null;
       setAnchor(r ? Math.max(12, Math.round(r.top + window.scrollY - 56)) : 12);
       setOpenId(id);
+      host.openCard(id);
     }
+
+    /* сервер принял карточку — закрываем; отклонил — остаётся открытой с тостом */
+    var seenCardAt = useRef(null);
+    useEffect(function () {
+      var res = host.cardResult;
+      if (!res || res.at === seenCardAt.current) return;
+      seenCardAt.current = res.at;
+      if (res.ok && res.id === openId) { setOpenId(null); say('Изменения сохранены'); }
+    }, [host.cardResult]);
 
     var mobile = view === 'mobile' || (view === 'auto' && width < 900);
     var narrow = width < 760;
@@ -1550,12 +1684,12 @@ label.f textarea{resize:vertical;min-height:48px}
             </div>`
           : html`<div>
               <b>Кликните на цену или остаток, чтобы изменить</b>
-              <p><kbd>Enter</kbd> — сохранить и перейти к следующему полю. Изменение уходит на сервер сразу и сразу видно покупателю.</p>
+              <p><kbd>Enter</kbd> — сохранить и перейти к следующему полю. Изменение уходит на сервер сразу и сразу видно покупателю. Фото, описание, артикул и дата поставки — в карточке (✎).</p>
             </div>`}
         <div className="counts">
           <span className="count">В наличии: <b>${inStock}</b></span>
           <span className="count">Закончились (0): <b>${outStock}</b></span>
-          <span className="count">На модерации: <b>${waiting}</b></span>
+          <span className="count" title="Позиции, которым модератор ещё не подобрал товар общего каталога">Без позиции справочника: <b>${waiting}</b></span>
         </div>
       </div>
 
@@ -1579,9 +1713,9 @@ label.f textarea{resize:vertical;min-height:48px}
           <${MultiSelect} label="Статус" all="Статус: Все" options=${STATUS_OPTIONS}
             value=${statuses} onChange=${function (v) { setStatuses(v); setPage(1); }} />
           <select value=${moder} onChange=${function (e) { setModer(e.target.value); setPage(1); }}>
-            <option value="all">Модерация: Все</option>
-            <option value="RESOLVED">Сопоставлен</option>
-            <option value="WAIT_PRODUCT">Ожидает Product</option>
+            <option value="all">Справочник: Все</option>
+            <option value="RESOLVED">Позиция подобрана</option>
+            <option value="WAIT_PRODUCT">Без позиции</option>
           </select>
         </div>
       </div>
@@ -1601,7 +1735,7 @@ label.f textarea{resize:vertical;min-height:48px}
                       onClick=${function (e) { openCard(p.id, e); }}>✎</button>
                   </div>
                   <div className="pmeta">${p.group || 'Без категории'}<span className="dot">•</span>
-                    <span className="sku">${p.seller_sku}</span>
+                    <span className="sku">${p.seller_sku || '—'}</span>
                     ${p.origin_country && html`<span className="dot">•</span>`}${p.origin_country}</div>
                   <div className="row">
                     <div className="field">${cell(p, 'price')}</div>
@@ -1630,7 +1764,7 @@ label.f textarea{resize:vertical;min-height:48px}
                     <td>
                       <div className="pname">${p.product_name}</div>
                       <div className="pmeta">${p.group || 'Без категории'}<span className="dot">•</span>
-                        <span className="sku">${p.seller_sku}</span>
+                        <span className="sku">${p.seller_sku || '—'}</span>
                         ${p.origin_country && html`<span className="dot">•</span>`}${p.origin_country}</div>
                     </td>
                     <td>${cell(p, 'price')}</td>
@@ -1666,7 +1800,11 @@ label.f textarea{resize:vertical;min-height:48px}
       </div>
 
       ${openProduct && html`<${ProductModal} product=${openProduct} anchor=${anchor}
-        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${false} readOnly=${true}
+        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${false}
+        readOnly=${host.readOnly} connected=${host.connected} detail=${host.detail}
+        saving=${!!openProduct.saving} uploading=${host.photoPending(openProduct.id)}
+        onSave=${function (changes, local) { host.saveCard(openProduct.id, changes, local); }}
+        onUpload=${function (file) { host.uploadPhoto(openProduct.id, file); }}
         onClose=${function () { setOpenId(null); }} />`}
 
       ${toast && html`<div className="toast">${toast}</div>`}
