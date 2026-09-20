@@ -31,6 +31,9 @@ class SellerCatalogItem(BaseModel):
     is_published: bool
     moderation_status: str
     updated_at: datetime
+    # Ссылки в порядке показа; первая — превью в списке. Список собирает их
+    # одним запросом на страницу, а не по запросу на строку.
+    photos: list[str] = []
     # Токен оптимистической блокировки: клиент возвращает его в PATCH, чтобы
     # не затереть чужое изменение, случившееся между чтением и записью.
     version: int
@@ -44,9 +47,10 @@ class SellerCatalogListResponse(BaseModel):
 
 
 class SellerCatalogDetail(SellerCatalogItem):
-    """То же плюс фотографии — карточке редактирования они нужны, списку нет."""
-
-    photos: list[str] = []
+    """Карточка редактирования. Состав тот же, что у строки списка: фотографии
+    теперь нужны и списку — плитка кабинета показывает превью, и без них
+    продавец не видит, у какого товара фото нет, пока не откроет каждую
+    карточку."""
 
 
 class SellerProductGroupOption(BaseModel):

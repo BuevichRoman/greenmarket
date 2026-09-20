@@ -12,9 +12,9 @@
   КОНТРАКТ С ХОСТОМ (единственное место, которое меняется при подключении к API)
 
   model.products : строки GET /api/v1/seller/products (items) как есть — виджет
-      сам приводит их к своей модели (fromApi). Понимает и старую форму
-      публичного каталога (seller_product_id), но там нет version, и правки
-      через неё невозможны.
+      сам приводит их к своей модели (fromApi); photos из строки идут в
+      превью списка. Понимает и старую форму публичного каталога
+      (seller_product_id), но там нет version, и правки через неё невозможны.
   model.seller   : { name, place }   — необязательно
   model.loading  : boolean           — необязательно
   model.readOnly : boolean           — необязательно; true = витрина без записи:
@@ -904,8 +904,9 @@ label.f textarea{resize:vertical;min-height:48px}
 
   /* Адаптер API → модель виджета. Две формы строки:
      - GET /seller/products (Seller Catalog API): id, seller_name, product_name,
-       product_group_name, is_published, moderation_status, version. Фотографий
-       в списке нет — has_photo остаётся null («неизвестно»), а не false.
+       product_group_name, is_published, moderation_status, version, photos.
+       Старый бэкенд отдавал список без photos — тогда has_photo остаётся
+       null («неизвестно»), а не false.
      - публичный /catalog/sellers/{id}/products: seller_product_id, name,
        group_name, photos. Без version — только показ. */
   function fromApi(row) {
@@ -923,7 +924,7 @@ label.f textarea{resize:vertical;min-height:48px}
       unit: row.unit,
       publication_status: admin ? (row.is_published ? 'PUBLISHED' : 'UNPUBLISHED') : 'PUBLISHED',
       moderation_status: (admin ? row.moderation_status === 'RESOLVED' : row.product_id != null) ? 'RESOLVED' : 'WAIT_PRODUCT',
-      has_photo: admin ? null : photos.length > 0,
+      has_photo: admin && row.photos === undefined ? null : photos.length > 0,
       photos: photos.slice(),
       photo_url: photos[0] || '',
       description: row.description,
@@ -1034,11 +1035,19 @@ label.f textarea{resize:vertical;min-height:48px}
       });
     }, [base]);
 
-    /* Сервер перечитал карточку после загрузки — фотография на месте. */
+    /* Сервер перечитал карточку после загрузки — фотография на месте.
+       Строке списка фотографии подставляем сразу: список хост перечитывает
+       не после каждой загрузки, а превью должно совпадать с карточкой. */
     useEffect(function () {
       if (!detail) return;
       Object.keys(pendingRef.current).forEach(function (key) {
         if (key === detail.id + ':photo') dropPending(key);
+      });
+      setBase(function (list) {
+        return list.map(function (p) {
+          if (p.id !== detail.id || p.photo_url === detail.photo_url && p.photos.length === detail.photos.length) return p;
+          return Object.assign({}, p, { photos: detail.photos.slice(), has_photo: detail.has_photo, photo_url: detail.photo_url });
+        });
       });
     }, [detail]);
 

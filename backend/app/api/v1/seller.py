@@ -344,8 +344,12 @@ def list_seller_products(
     except UnknownSortFieldError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
+    photos = _photo_urls_by_product(session, [row.id for row, _, _ in rows])
     return SellerCatalogListResponse(
-        items=[SellerCatalogItem(**_catalog_item_fields(row, product, group)) for row, product, group in rows],
+        items=[
+            SellerCatalogItem(**_catalog_item_fields(row, product, group), photos=photos.get(row.id, []))
+            for row, product, group in rows
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -431,14 +435,22 @@ def _detail_or_none(session: Session, seller_id: int, seller_product_id: int) ->
     if found is None:
         return None
     row, product, group = found
-    keys = PhotoGateway(session).list_by_seller_products([row.id]).get(row.id, [])
-    photos = [
-        build_photo_url(
-            key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
-        )
-        for key in keys
-    ]
+    photos = _photo_urls_by_product(session, [row.id]).get(row.id, [])
     return SellerCatalogDetail(**_catalog_item_fields(row, product, group), photos=photos)
+
+
+def _photo_urls_by_product(session: Session, seller_product_ids: list[int]) -> dict[int, list[str]]:
+    """Ссылки на фотографии в порядке показа, одним запросом на весь набор."""
+    keys_by_product = PhotoGateway(session).list_by_seller_products(seller_product_ids)
+    return {
+        seller_product_id: [
+            build_photo_url(
+                key, bucket=settings.s3_bucket, region=settings.s3_region, public_base_url=settings.s3_public_base_url
+            )
+            for key in keys
+        ]
+        for seller_product_id, keys in keys_by_product.items()
+    }
 
 
 @router.post("/products", response_model=SellerCatalogDetail, status_code=201)

@@ -518,6 +518,28 @@ def test_uploaded_photo_appears_in_product_detail(committing_session):
     assert len(detail["photos"]) == 1
 
 
+def test_list_returns_photos_of_each_product(committing_session):
+    """Превью в списке кабинета: фотографии приходят вместе со строкой, а не
+    отдельным запросом на каждую — иначе список из ста позиций делает сто
+    запросов ради плиток."""
+    seller_id = insert_seller(committing_session, name="Ферма превью списка")
+    user_id = insert_user(committing_session, name="Пользователь превью списка")
+    with_photo = add_offer(committing_session, seller_id, name="С фото")
+    add_offer(committing_session, seller_id, name="Без фото")
+    client = client_for(committing_session, seller_id, user_id)
+    with_storage()
+    upload(client, with_photo.id)
+    upload(client, with_photo.id, name="second.jpg")
+
+    body = client.get("/api/v1/seller/products", headers=AUTH).json()
+
+    app.dependency_overrides.clear()
+    photos = {item["seller_name"]: item["photos"] for item in body["items"]}
+    assert len(photos["С фото"]) == 2
+    assert photos["Без фото"] == []
+    assert all(url.startswith("http") for url in photos["С фото"])
+
+
 def test_end_to_end_seller_admin_flow_without_google_sheets(committing_session):
     """Главный критерий ТЗ: товар доходит до покупателя без рабочей книги.
 
