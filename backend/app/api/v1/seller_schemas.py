@@ -9,6 +9,9 @@ class SellerStatusResponse(BaseModel):
     current_catalog_version: int
     published_product_count: int
     last_published_at: datetime | None
+    # Ссылка на рабочую книгу продавца для меню Seller Admin. None, пока книга
+    # не привязана активацией — кнопке «Рабочая таблица» тогда нечего открывать.
+    spreadsheet_url: str | None = None
 
 
 class SellerActivationRequest(BaseModel):

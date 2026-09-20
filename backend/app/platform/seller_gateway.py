@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 class SellerStatus:
     is_active: bool
     current_catalog_version: int
+    spreadsheet_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,12 +58,12 @@ class SellerGateway:
 
     def get_status(self, seller_id: int) -> SellerStatus | None:
         row = self.session.execute(
-            text("SELECT is_active, current_catalog_version FROM Seller WHERE id = :seller_id"),
+            text("SELECT is_active, current_catalog_version, spreadsheet_id FROM Seller WHERE id = :seller_id"),
             {"seller_id": seller_id},
         ).first()
         if row is None:
             return None
-        return SellerStatus(is_active=bool(row[0]), current_catalog_version=row[1] or 0)
+        return SellerStatus(is_active=bool(row[0]), current_catalog_version=row[1] or 0, spreadsheet_id=row[2])
 
     def get_current_publication_key(self, seller_id: int) -> str | None:
         row = self.session.execute(

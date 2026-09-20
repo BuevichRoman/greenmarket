@@ -116,3 +116,76 @@ def test_get_seller_catalog_reflects_active_flag_and_published_product_count(com
     body = response.json()
     assert body["is_active"] is True
     assert body["published_product_count"] == 1
+
+
+# ── Ссылка на рабочую книгу и Bearer в статусе ───────────────────────────
+
+SHEET_ID = "1tT-PcJjVFEpuL4muxew4CFJU9vJNn_x6o36oZ2rT7VA"
+
+
+def _bearer_client(committing_session, seller_id: int):
+    from fastapi import Header
+
+    from app.api.v1.seller import get_seller_bearer_access
+
+    def resolver(authorization: str | None = Header(default=None)):
+        if authorization is None or authorization.lower() != f"bearer {VALID_TOKEN}":
+            return None
+        return SellerAccess(seller_id=seller_id, published_by=seller_id, name="Продавец")
+
+    override_session(committing_session)
+    app.dependency_overrides[get_seller_bearer_access] = resolver
+    return TestClient(app)
+
+
+def test_get_seller_catalog_returns_spreadsheet_url_for_activated_book(committing_session):
+    seller_id = insert_seller(committing_session, name="Продавец с книгой")
+    committing_session.execute(
+        text("UPDATE Seller SET spreadsheet_id = :sid WHERE id = :id"), {"sid": SHEET_ID, "id": seller_id}
+    )
+    override_session(committing_session)
+    override_seller_access(seller_id, seller_id)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/seller/catalog", params={"access_token": VALID_TOKEN})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["spreadsheet_url"] == f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+
+
+def test_get_seller_catalog_spreadsheet_url_is_null_without_book_or_for_stub_id(committing_session):
+    # Книга не привязана — ссылки нет. Заглушка вместо ID (демо-продавец,
+    # активированный руками) — тоже нет: битую ссылку в кабинете показывать нельзя.
+    no_book = insert_seller(committing_session, name="Продавец без книги")
+    stub = insert_seller(committing_session, name="Демо-продавец с заглушкой")
+    committing_session.execute(
+        text("UPDATE Seller SET spreadsheet_id = 'appsmith-demo-seller-4' WHERE id = :id"), {"id": stub}
+    )
+    override_session(committing_session)
+    client = TestClient(app)
+
+    for seller_id in (no_book, stub):
+        override_seller_access(seller_id, seller_id)
+        response = client.get("/api/v1/seller/catalog", params={"access_token": VALID_TOKEN})
+        assert response.status_code == 200
+        assert response.json()["spreadsheet_url"] is None
+
+    app.dependency_overrides.clear()
+
+
+def test_get_seller_catalog_accepts_bearer_token(committing_session):
+    # Seller Admin ходит с Bearer (токен не должен попадать в access.log);
+    # прежний ?access_token= для Apps Script продолжает работать.
+    seller_id = insert_seller(committing_session, name="Продавец с Bearer")
+    client = _bearer_client(committing_session, seller_id)
+
+    ok = client.get("/api/v1/seller/catalog", headers={"Authorization": f"Bearer {VALID_TOKEN}"})
+    denied = client.get("/api/v1/seller/catalog", headers={"Authorization": "Bearer wrong"})
+    nothing = client.get("/api/v1/seller/catalog")
+
+    app.dependency_overrides.clear()
+    assert ok.status_code == 200
+    assert ok.json()["seller_id"] == seller_id
+    assert denied.status_code == 403
+    assert nothing.status_code == 403

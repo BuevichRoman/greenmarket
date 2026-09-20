@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -83,13 +85,30 @@ def seller_access_denied() -> JSONResponse:
     return error_response(401, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
 
 
+# Активация из книги всегда присылает Spreadsheet.getId() — строку из букв,
+# цифр, «-» и «_» длиной за сорок символов. Всё, что короче, в базу попало
+# руками (демо-продавец с заглушкой) и в ссылку превращаться не должно.
+_GOOGLE_SHEET_ID = re.compile(r"^[A-Za-z0-9_-]{30,}$")
+
+
+def spreadsheet_url_for(spreadsheet_id: str | None) -> str | None:
+    if not spreadsheet_id or not _GOOGLE_SHEET_ID.match(spreadsheet_id):
+        return None
+    return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+
+
 @router.get("/catalog", response_model=SellerStatusResponse)
 def get_seller_catalog(
-    access_token: str,
+    access_token: str | None = None,
     session: Session = Depends(get_session),
     resolve_access=Depends(get_seller_access_resolver),
+    bearer: SellerAccess | None = Depends(get_seller_bearer_access),
 ) -> SellerStatusResponse | JSONResponse:
-    access = resolve_access(access_token)
+    """Статус продавца. Два способа предъявить токен: `Authorization: Bearer`
+    для Seller Admin (токен не попадает в access.log) и прежний
+    `?access_token=` для Apps Script — его клиенты переводятся на заголовок
+    отдельной задачей, ломать их здесь нельзя."""
+    access = bearer if bearer is not None else (resolve_access(access_token) if access_token else None)
     if access is None:
         return error_response(403, "SELLER_ACCESS_DENIED", "Токен доступа продавца недействителен")
 
@@ -106,6 +125,7 @@ def get_seller_catalog(
         current_catalog_version=status.current_catalog_version,
         published_product_count=SellerProductRepository(session).count_published(access.seller_id),
         last_published_at=last_published_at,
+        spreadsheet_url=spreadsheet_url_for(status.spreadsheet_id),
     )
 
 
