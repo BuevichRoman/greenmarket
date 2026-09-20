@@ -34,6 +34,16 @@
       хост кладёт сюда ответ после onOpenCard и после загрузки фотографии.
       В списке фотографий нет, поэтому карточка берёт их отсюда — пока
       detail.id совпадает с открытой позицией, иначе показывает «загружаем».
+  model.created : ответ POST /api/v1/seller/products как есть — необязательно;
+      по нему виджет закрывает форму новой позиции и открывает её карточку
+      (фотографии добавляются уже туда). Один и тот же ответ хост может
+      присылать при каждой синхронизации — виджет помнит уже показанный id.
+  model.suggest : ответ GET /api/v1/seller/products/suggest ({ items }) —
+      необязательно; подсказки позиций справочника для поля «Позиция общего
+      каталога». Показывается последний пришедший ответ.
+  model.publishResult : ответ POST /api/v1/seller/catalog/publish ({ updated,
+      deactivated, hidden_no_photo, message, publication_id }) — необязательно;
+      виджет показывает итог тостом. Различает по publication_id.
 
   Правка цены/остатка — мгновенная, без «Опубликовать»: в Seller Catalog API
   нет пакетной публикации, PATCH сразу меняет то, что видит покупатель.
@@ -62,8 +72,26 @@
                      затем перечитать detail; ошибка — patchError { field: "photo" }.
                      Удаления и переупорядочивания фотографий в API нет — в
                      подключённом режиме карточка их и не предлагает.
+      onCreateProduct pending = { idempotency_key, fields }
+                     fields — в именах API: seller_name, price, stock, unit и
+                     необязательные product_id, description, origin_country,
+                     supply_date, seller_sku. idempotency_key — на форму, один
+                     на все повторы: потеря ответа не должна плодить дубли.
+                     хост: POST /seller/products { ...fields, idempotency_key }
+                     → model.created, затем перечитать список; ошибка —
+                     patchError { id: "new", field: "create" }.
+      onSuggest      pending = { q }
+                     хост: GET /seller/products/suggest?q= → model.suggest.
+      onPublish      pending = {}
+                     хост: POST /seller/catalog/publish → model.publishResult,
+                     затем перечитать список; ошибка — patchError
+                     { id: "catalog", field: "publish" }.
+                     Новая позиция создаётся невидимой (is_published=false) —
+                     на витрину её выводит только публикация. Публикация из
+                     кабинета выставляет видимость всем позициям разом:
+                     с фотографией — на витрине, без — скрыта. Это правило
+                     сервера, кнопка «Обновить витрину» его только вызывает.
       onRefresh      pending = {}
-  Создание позиции — следующей итерацией.
   ─────────────────────────────────────────────────────────────────────────────
 -->
 <meta charset="utf-8">
@@ -546,6 +574,9 @@ label.f textarea{resize:vertical;min-height:48px}
 .combo-opt{padding:7px 9px;border-radius:7px;font-size:13px}
 .combo-opt.on{background:var(--green-soft);color:var(--green-ink);font-weight:600}
 .combo-empty{padding:8px 9px;font-size:12px;color:var(--muted)}
+.combo-sub{color:var(--muted);font-weight:400}
+.picked{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--slate-soft);font-size:13px}
+.picked .btn.sm{padding:4px 8px;font-size:12px}
 .photo-actions{display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap}
 .linkdanger{border:0;background:none;color:var(--red);font-weight:600;font-size:12px;padding:4px 2px}
 .linkdanger:hover{text-decoration:underline}
@@ -943,6 +974,14 @@ label.f textarea{resize:vertical;min-height:48px}
     /* Итог сохранения карточки: { id, ok, at }. ok — сервер вернул строку с новой
        version; иначе — ошибка или таймаут. По нему карточка закрывается. */
     var cr = useState(null), cardResult = cr[0], setCardResult = cr[1];
+    /* Созданная позиция (model.created → модель виджета) — показанные id
+       помним, чтобы старый ответ хоста не открывал карточку повторно. */
+    var cd = useState(null), created = cd[0], setCreated = cd[1];
+    var seenCreated = useRef({});
+    var sg = useState([]), suggest = sg[0], setSuggest = sg[1];
+    var suggestFp = useRef('');
+    var pr = useState(null), publishResult = pr[0], setPublishResult = pr[1];
+    var seenPublication = useRef(null);
 
     var syncFromHost = useCallback(function () {
       var host = hostApi();
@@ -954,6 +993,21 @@ label.f textarea{resize:vertical;min-height:48px}
       setSpreadsheetUrl(m.spreadsheetUrl || '');
       setPatchError(m.patchError || null);
       setDetail(m.detail && m.detail.id !== undefined ? fromApi(m.detail) : null);
+      if (m.created && m.created.id !== undefined && !seenCreated.current[m.created.id]) {
+        seenCreated.current[m.created.id] = 1;
+        setCreated(fromApi(m.created));
+      }
+      /* Хост присылает модель целиком при каждом изменении (в том числе после
+         нашего же updateModel), поэтому список подсказок меняем только когда
+         изменился его состав — иначе CatalogPicker примет старый ответ за новый. */
+      var items = m.suggest && m.suggest.items ? m.suggest.items : [];
+      var fp = items.map(function (it) { return it.id; }).join(',');
+      if (fp !== suggestFp.current) { suggestFp.current = fp; setSuggest(items); }
+      if (m.publishResult && m.publishResult.publication_id !== undefined
+          && m.publishResult.publication_id !== seenPublication.current) {
+        seenPublication.current = m.publishResult.publication_id;
+        setPublishResult(Object.assign({ at: Date.now() }, m.publishResult));
+      }
     }, []);
 
     function dropPending(key) {
@@ -969,6 +1023,9 @@ label.f textarea{resize:vertical;min-height:48px}
       base.forEach(function (p) { byId[p.id] = p; });
       Object.keys(pendingRef.current).forEach(function (key) {
         var id = key.split(':')[0], field = key.split(':')[1];
+        /* Списком закрываются только правки строк; создание, публикацию и
+           фотографию подтверждают свои ответы (created, publishResult, detail). */
+        if (field === 'create' || field === 'publish' || field === 'photo') return;
         var row = byId[id];
         if (!row || row.version !== pendingRef.current[key].version) {
           dropPending(key);
@@ -985,6 +1042,17 @@ label.f textarea{resize:vertical;min-height:48px}
       });
     }, [detail]);
 
+    /* Сервер создал позицию: форма закрыта, фотографии — уже в её карточку. */
+    useEffect(function () {
+      if (!created) return;
+      dropPending('new:create');
+      setDetail(created);
+    }, [created]);
+
+    useEffect(function () {
+      if (publishResult) dropPending('catalog:publish');
+    }, [publishResult]);
+
     /* Сервер отклонил правку: откат к серверному значению и текст тостом.
        Одну и ту же ошибку хост может прислать при нескольких синхронизациях —
        различаем по метке времени. */
@@ -994,6 +1062,7 @@ label.f textarea{resize:vertical;min-height:48px}
       seenErrorAt.current = patchError.at;
       dropPending(String(patchError.id) + ':' + patchError.field);
       if (patchError.field === 'card') setCardResult({ id: String(patchError.id), ok: false, at: Date.now() });
+      if (patchError.field === 'create') setCardResult({ id: 'new', ok: false, at: Date.now() });
       setNotice({ text: patchError.message || 'Не удалось сохранить', at: Date.now() });
     }, [patchError]);
 
@@ -1062,6 +1131,8 @@ label.f textarea{resize:vertical;min-height:48px}
       products: products, loading: loading, readOnly: readOnly, notice: notice,
       spreadsheetUrl: spreadsheetUrl, detail: detail, cardResult: cardResult,
       connected: !!hostApi(),
+      created: created, suggest: suggest, publishResult: publishResult,
+      creating: !!pending['new:create'], publishing: !!pending['catalog:publish'],
       photoPending: function (id) { return !!pending[id + ':photo']; },
       seller: (hostApi() && hostApi().model && hostApi().model.seller) ||
               { name: 'Фермерское хозяйство «Араз»', place: 'Торговое место #14' },
@@ -1101,6 +1172,29 @@ label.f textarea{resize:vertical;min-height:48px}
           setCardResult({ id: id, ok: false, at: Date.now() });
         });
         emit('onSaveProduct', { id: id, changes: changes, expected_version: row.version });
+      },
+      createProduct: function (fields, key, local) {
+        if (!hostApi()) {
+          /* Вне Appsmith — сразу в демо-список, с локальным id. */
+          var id = 'sp-' + Date.now().toString(36);
+          setBase(function (list) { return [Object.assign({}, local, { id: id, version: null })].concat(list); });
+          setCreated(Object.assign({}, local, { id: id, photos: [], has_photo: false, photo_url: '' }));
+          emit('onCreateProduct', { idempotency_key: key, fields: fields });
+          return;
+        }
+        track('new:create', fields, null, PATCH_TIMEOUT_MS, function () {
+          setCardResult({ id: 'new', ok: false, at: Date.now() });
+        });
+        emit('onCreateProduct', { idempotency_key: key, fields: fields });
+      },
+      askSuggest: function (q) {
+        if (!hostApi()) return;
+        emit('onSuggest', { q: q });
+      },
+      publish: function () {
+        if (!hostApi()) return;
+        track('catalog:publish', {}, null, PATCH_TIMEOUT_MS);
+        emit('onPublish', {});
       },
       openCard: function (id) {
         if (!hostApi()) return;
@@ -1146,6 +1240,12 @@ label.f textarea{resize:vertical;min-height:48px}
     { value: 'UNPUBLISHED', label: 'Не опубликован' }
   ];
   var MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+  /* Пустая форма новой позиции. */
+  var NEW_PRODUCT = {
+    id: 'new', version: null, global_product_id: null, product_name: '', catalog_name: null, group: '',
+    price: '', stock: '', unit: 'кг', publication_status: 'UNPUBLISHED', moderation_status: 'WAIT_PRODUCT',
+    has_photo: false, photos: [], photo_url: '', description: '', seller_sku: '', origin_country: '', delivery_date: ''
+  };
   var PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
   /* Справочник стран — временная константа на стороне интерфейса.
@@ -1325,6 +1425,81 @@ label.f textarea{resize:vertical;min-height:48px}
     </div>`;
   }
 
+  /* Позиция общего каталога (product_id). Подсказки приходят от хоста
+     (GET /seller/products/suggest) — запрос уходит с задержкой после ввода.
+     Без выбранной позиции товар остаётся «без позиции справочника», и на
+     витрину покупателя не попадёт, пока модератор её не подберёт. */
+  function CatalogPicker(props) {
+    var so = useState(false), open = so[0], setOpen = so[1];
+    var sh = useState(-1), hi = sh[0], setHi = sh[1];
+    var q = useState(''), query = q[0], setQuery = q[1];
+    var timer = useRef(null);
+    var picked = props.value;   /* { product_id, catalog_name, group } | null */
+    /* Ответ хоста не помечен запросом, поэтому до прихода нового ответа
+       старые подсказки не показываем — иначе на «слив» видны «груши» и клик
+       по первой строке привязывает не ту позицию. */
+    var w = useState(false), waiting = w[0], setWaiting = w[1];
+    var lastItems = useRef(props.items), waitTimer = useRef(null);
+    useEffect(function () {
+      if (props.items !== lastItems.current) {
+        lastItems.current = props.items;
+        clearTimeout(waitTimer.current);
+        setWaiting(false);
+      }
+    }, [props.items]);
+
+    function ask(text) {
+      clearTimeout(timer.current);
+      var t = text.trim();
+      if (t.length < 2) return;
+      timer.current = setTimeout(function () {
+        setWaiting(true);
+        clearTimeout(waitTimer.current);
+        /* Одинаковый состав ответа на другой запрос виджету не отличить —
+           через пару секунд показываем то, что есть. */
+        waitTimer.current = setTimeout(function () { setWaiting(false); }, 2500);
+        props.onQuery(t);
+      }, 300);
+    }
+    function pick(item) {
+      props.onPick({ product_id: String(item.id), catalog_name: item.name, group: item.product_group_name });
+      setQuery(''); setOpen(false); setHi(-1);
+    }
+    function onKey(e) {
+      var items = props.items || [];
+      if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi(Math.min(hi + 1, items.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(Math.max(hi - 1, 0)); }
+      else if (e.key === 'Enter') { if (open && items.length) { e.preventDefault(); pick(items[hi >= 0 ? hi : 0]); } }
+      else if (e.key === 'Escape') { setOpen(false); setHi(-1); }
+    }
+
+    if (picked) {
+      return html`<div className="picked">
+        <span><b>${picked.catalog_name}</b>${picked.group ? ' — ' + picked.group : ''}</span>
+        ${!props.readOnly && html`<button type="button" className="btn sm" title="Выбрать другую позицию"
+          onClick=${function () { props.onPick(null); }}>Изменить</button>`}
+      </div>`;
+    }
+    var items = waiting ? [] : (props.items || []);
+    var typed = query.trim().length >= 2;
+    return html`<div className="combo">
+      <input value=${query} autoComplete="off" placeholder="Начните вводить название, например «томаты»"
+        onChange=${function (e) { setQuery(e.target.value); setOpen(true); setHi(-1); ask(e.target.value); }}
+        onFocus=${function () { setOpen(true); }}
+        onBlur=${function () { setOpen(false); setHi(-1); }}
+        onKeyDown=${onKey} />
+      ${open && typed && html`<div className="combo-list">
+        ${waiting ? html`<div className="combo-empty">Ищем в общем каталоге…</div>` : items.length
+          ? items.map(function (it, i) {
+              return html`<div key=${it.id} className=${'combo-opt' + (i === hi ? ' on' : '')}
+                onMouseDown=${function (e) { e.preventDefault(); pick(it); }}
+                onMouseEnter=${function () { setHi(i); }}>${it.name}<span className="combo-sub"> — ${it.product_group_name}</span></div>`;
+            })
+          : html`<div className="combo-empty">Ничего не найдено — можно сохранить без позиции, её подберёт модератор</div>`}
+      </div>`}
+    </div>`;
+  }
+
   function MultiSelect(props) {
     var so = useState(false), open = so[0], setOpen = so[1];
     var box = useRef(null);
@@ -1380,6 +1555,16 @@ label.f textarea{resize:vertical;min-height:48px}
     }, [props.anchor, p.id]);
     var s = useState(Object.assign({}, p)), form = s[0], setForm = s[1];
     var addRef = useRef(null), replaceRef = useRef(null), replaceAt = useRef(-1);
+    /* Ключ идемпотентности — один на открытую форму: повтор «Добавить» после
+       потерянного ответа вернёт ту же позицию, а не создаст вторую. */
+    var idemKey = useRef('gb-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+    var pickedCatalog = form.global_product_id
+      ? { product_id: form.global_product_id, catalog_name: form.catalog_name, group: form.group }
+      : null;
+    function pickCatalog(v) {
+      put(v ? { global_product_id: v.product_id, catalog_name: v.catalog_name, group: v.group }
+            : { global_product_id: null, catalog_name: null });
+    }
     function set(k) { return function (e) { var v = e.target.value; setForm(function (f) { var n = Object.assign({}, f); n[k] = v; return n; }); }; }
     function put(patch) { setForm(function (f) { return Object.assign({}, f, patch); }); }
     function say(m) { if (props.onNotice) props.onNotice(m); }
@@ -1453,7 +1638,11 @@ label.f textarea{resize:vertical;min-height:48px}
           <button className="close" onClick=${props.onClose}>×</button>
         </div>
         <div className="modal-body">
-          <div className="photos">
+          ${connected && props.isNew && html`<div className="photos">
+            <div className="photos-head"><b>Фотографии товара</b>
+              <p>Добавляются после сохранения — форма откроет карточку новой позиции. Без фотографии товар на витрину не выйдет.</p></div>
+          </div>`}
+          ${!(connected && props.isNew) && html`<div className="photos">
             <div className="photos-head">
               <b>Фотографии товара${photos.length ? ' — ' + photos.length : ''}</b>
               <p>JPEG, PNG или WEBP до 10 МБ. Первая идёт на плитку в каталоге; без фотографий товар не публикуется.${connected ? ' Фотография уходит на сервер сразу.' : ''}</p>
@@ -1482,19 +1671,24 @@ label.f textarea{resize:vertical;min-height:48px}
               style=${{ display: 'none' }} onChange=${addPhotos} />
             <input ref=${replaceRef} type="file" accept="image/jpeg,image/png,image/webp"
               style=${{ display: 'none' }} onChange=${replacePhoto} />
-          </div>
+          </div>`}
 
           <label className="f"><span>Название товара (для покупателя) *</span>
             <input value=${form.product_name} onChange=${set('product_name')} /></label>
-          <div className="sub">${form.catalog_name
-            ? 'В общем каталоге: ' + form.catalog_name
-            : 'В общем каталоге позиция ещё не сопоставлена — этим займётся модератор'}</div>
-
-          <label className="f"><span>Группа</span>
-            <select value=${form.group} onChange=${set('group')} disabled=${connected}
-              title=${connected ? 'Группу задаёт позиция общего каталога' : ''}>
-              ${(props.groups || GROUPS_FALLBACK).map(function (g) { return html`<option key=${g}>${g}</option>`; })}
-            </select></label>
+          ${connected
+            ? html`<label className="f"><span>Позиция общего каталога</span>
+                <${CatalogPicker} value=${pickedCatalog} items=${props.suggest} readOnly=${props.readOnly}
+                  onQuery=${props.onSuggest} onPick=${pickCatalog} /></label>
+              <div className="sub">${pickedCatalog
+                ? 'Группа и место в каталоге покупателя определяются этой позицией.'
+                : 'Без позиции товар покупателю не показывается — её подберёт модератор, или выберите сами.'}</div>`
+            : html`<div className="sub">${form.catalog_name
+                ? 'В общем каталоге: ' + form.catalog_name
+                : 'В общем каталоге позиция ещё не сопоставлена — этим займётся модератор'}</div>
+              <label className="f"><span>Группа</span>
+                <select value=${form.group} onChange=${set('group')}>
+                  ${(props.groups || GROUPS_FALLBACK).map(function (g) { return html`<option key=${g}>${g}</option>`; })}
+                </select></label>`}
 
           <div className="rowline three">
             <label className="f"><span>Цена (₽)</span>
@@ -1537,10 +1731,22 @@ label.f textarea{resize:vertical;min-height:48px}
             };
             if (!local.product_name) return say('Укажите название товара');
             if (!(local.price >= 0) || !(local.stock >= 0)) return say('Цена и остаток — числа не меньше нуля');
-            /* На сервер — только изменённое, в именах API; пустое = null («очистить»). */
             var map = { product_name: 'seller_name', price: 'price', stock: 'stock', unit: 'unit',
                         seller_sku: 'seller_sku', delivery_date: 'supply_date',
                         origin_country: 'origin_country', description: 'description' };
+            if (props.isNew) {
+              var fields = {};
+              Object.keys(map).forEach(function (k) {
+                if (k === 'price' || k === 'stock' || k === 'unit' || k === 'product_name' || local[k] !== '') fields[map[k]] = local[k];
+              });
+              if (form.global_product_id) fields.product_id = Number(form.global_product_id);
+              props.onCreate(fields, idemKey.current, Object.assign({}, form, local, {
+                publication_status: 'UNPUBLISHED',
+                moderation_status: form.global_product_id ? 'RESOLVED' : 'WAIT_PRODUCT'
+              }));
+              return;
+            }
+            /* На сервер — только изменённое, в именах API; пустое = null («очистить»). */
             var changes = {}, diff = {};
             Object.keys(map).forEach(function (k) {
               var was = k === 'price' || k === 'stock' ? Number(p[k]) : (p[k] || '');
@@ -1548,6 +1754,13 @@ label.f textarea{resize:vertical;min-height:48px}
               diff[k] = local[k];
               changes[map[k]] = k === 'price' || k === 'stock' || local[k] !== '' ? local[k] : null;
             });
+            if ((form.global_product_id || null) !== (p.global_product_id || null)) {
+              changes.product_id = form.global_product_id ? Number(form.global_product_id) : null;
+              diff.global_product_id = form.global_product_id || null;
+              diff.catalog_name = form.catalog_name || null;
+              diff.group = form.group;
+              diff.moderation_status = form.global_product_id ? 'RESOLVED' : 'WAIT_PRODUCT';
+            }
             if (!Object.keys(changes).length) { say('Изменений нет'); return props.onClose(); }
             props.onSave(changes, diff);
           }}>${props.saving ? 'Сохраняем…' : (props.isNew ? 'Добавить товар' : 'Сохранить изменения')}</button>`}
@@ -1573,6 +1786,7 @@ label.f textarea{resize:vertical;min-height:48px}
     var an = useState(12), anchor = an[0], setAnchor = an[1];
     var ed = useState(null), editing = ed[0], setEditing = ed[1];
     var ts = useState(''), toast = ts[0], setToast = ts[1];
+    var ad = useState(false), adding = ad[0], setAdding = ad[1];
 
     function say(m) { setToast(m); setTimeout(function () { setToast(''); }, 2600); }
 
@@ -1595,6 +1809,25 @@ label.f textarea{resize:vertical;min-height:48px}
       seenCardAt.current = res.at;
       if (res.ok && res.id === openId) { setOpenId(null); say('Изменения сохранены'); }
     }, [host.cardResult]);
+
+    /* позиция создана — форма закрывается, открывается её карточка для фото */
+    var seenCreatedId = useRef(null);
+    useEffect(function () {
+      var c = host.created;
+      if (!c || c.id === seenCreatedId.current) return;
+      seenCreatedId.current = c.id;
+      setAdding(false);
+      setOpenId(c.id);
+      say('Позиция создана — добавьте фотографии');
+    }, [host.created]);
+
+    useEffect(function () {
+      var r = host.publishResult;
+      if (!r) return;
+      var hidden = (r.hidden_no_photo || []).length;
+      say('Витрина обновлена: показано ' + (r.updated || 0) + ', скрыто ' + (r.deactivated || 0)
+          + (hidden ? '; без фото не показаны: ' + hidden : ''));
+    }, [host.publishResult]);
 
     var mobile = view === 'mobile' || (view === 'auto' && width < 900);
     var narrow = width < 760;
@@ -1643,7 +1876,8 @@ label.f textarea{resize:vertical;min-height:48px}
     var groupList = useMemo(function () { return groupsOf(host.products); }, [host.products]);
     var countryList = useMemo(function () { return originsOf(host.products); }, [host.products]);
 
-    var openProduct = host.products.find(function (p) { return p.id === openId; });
+    var openProduct = host.products.find(function (p) { return p.id === openId; })
+      || (host.created && host.created.id === openId ? host.created : null);
 
     return html`<div className=${'wrap' + (narrow ? ' narrow' : '')}>
 
@@ -1668,6 +1902,11 @@ label.f textarea{resize:vertical;min-height:48px}
           <div className="sub">${host.seller.name} • ${host.seller.place}</div>
         </div>
         <div className="headactions">
+          ${!host.readOnly && html`<button className="btn btn-primary" onClick=${function () { setAdding(true); }}
+            title="Завести новую позицию в каталоге">＋ Добавить товар</button>`}
+          ${host.connected && !host.readOnly && html`<button className="btn" disabled=${host.publishing}
+            title="Вывести на витрину все позиции с фотографиями; позиции без фотографий с витрины снимаются"
+            onClick=${function () { host.publish(); }}>${host.publishing ? 'Обновляем…' : '⇧ Обновить витрину'}</button>`}
           ${host.spreadsheetUrl && html`<a className="btn" href=${host.spreadsheetUrl} target="_blank" rel="noopener"
             title="Открыть рабочую книгу Google Sheets в новой вкладке">▤ Рабочая таблица</a>`}
           <button className="icon-btn" title="Перечитать каталог с сервера"
@@ -1802,10 +2041,19 @@ label.f textarea{resize:vertical;min-height:48px}
       ${openProduct && html`<${ProductModal} product=${openProduct} anchor=${anchor}
         groups=${groupList} countries=${countryList} onNotice=${say} isNew=${false}
         readOnly=${host.readOnly} connected=${host.connected} detail=${host.detail}
+        suggest=${host.suggest} onSuggest=${host.askSuggest}
         saving=${!!openProduct.saving} uploading=${host.photoPending(openProduct.id)}
         onSave=${function (changes, local) { host.saveCard(openProduct.id, changes, local); }}
         onUpload=${function (file) { host.uploadPhoto(openProduct.id, file); }}
         onClose=${function () { setOpenId(null); }} />`}
+
+      ${adding && html`<${ProductModal} product=${NEW_PRODUCT} anchor=${12}
+        groups=${groupList} countries=${countryList} onNotice=${say} isNew=${true}
+        readOnly=${false} connected=${host.connected} detail=${null}
+        suggest=${host.suggest} onSuggest=${host.askSuggest}
+        saving=${host.creating} uploading=${false}
+        onCreate=${function (fields, key, local) { host.createProduct(fields, key, local); }}
+        onClose=${function () { setAdding(false); }} />`}
 
       ${toast && html`<div className="toast">${toast}</div>`}
     </div>`;
