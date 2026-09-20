@@ -172,3 +172,48 @@ class SellerProfileChange(Base):
     author_user_id: Mapped[int] = mapped_column(Integer)
     author_role: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CatalogSyncSession(Base):
+    """Рабочая сессия сверки каталога с книгой продавца.
+
+    Наружу отдаётся `session_id` (UUID), а не первичный ключ: по
+    последовательному id можно было бы перебирать чужие сессии.
+    `baseline_created_at` — не пятый статус, а отметка наличия снимка; она же
+    служит замком при одновременном создании.
+    """
+
+    __tablename__ = "CatalogSyncSession"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36))
+    seller_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    baseline_created_at: Mapped[datetime | None] = mapped_column(DateTime)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
+
+
+class CatalogSyncBaseline(Base):
+    """Строка снимка: состояние позиции на момент создания baseline.
+
+    Ссылки на SellerProduct нет намеренно — снимок обязан пережить удаление
+    позиции, иначе «существование позиции» перестаёт быть частью сравнения.
+    """
+
+    __tablename__ = "CatalogSyncBaseline"
+
+    session_id: Mapped[int] = mapped_column(ForeignKey("CatalogSyncSession.id"), primary_key=True)
+    seller_product_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seller_sku: Mapped[str | None] = mapped_column(String(64))
+    product_id: Mapped[int | None] = mapped_column(Integer)
+    seller_name: Mapped[str] = mapped_column(String(200))
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    stock: Mapped[float] = mapped_column(Numeric(12, 3))
+    unit: Mapped[str] = mapped_column(String(30))
+    description: Mapped[str | None] = mapped_column(Text)
+    origin_country: Mapped[str | None] = mapped_column(String(100))
+    supply_date: Mapped[date | None] = mapped_column(Date)
+    is_published: Mapped[bool] = mapped_column(Boolean)
+    version: Mapped[int] = mapped_column(Integer)
