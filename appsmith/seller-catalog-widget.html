@@ -1780,6 +1780,64 @@ label.f textarea{resize:vertical;min-height:48px}
 
   /* ═══ ПРИЛОЖЕНИЕ ══════════════════════════════════════════════════ */
 
+  /* GM-VOICE-001 parser — tested directly from this widget source. */
+  function voiceNormalize(s) {
+    var value = String(s || '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim();
+    value = value.replace(/(\d),(\d)/g, '$1§DECIMAL_COMMA§$2').replace(/(\d)\.(\d)/g, '$1§DECIMAL_DOT§$2');
+    return value.replace(/[«»"'!?;:()]/g, ' ').replace(/§DECIMAL_COMMA§/g, ',').replace(/§DECIMAL_DOT§/g, '.').replace(/\s+/g, ' ').trim();
+  }
+  function voiceParseNumber(s) {
+    var raw = voiceNormalize(s).replace(/\b(?:рублей|рубля|рубль|руб|р)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^\d+(?:[.,]\d{1,2})?$/.test(raw)) {
+      var n = Number(raw.replace(',', '.'));
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    }
+    var words = {'ноль':0,'один':1,'одна':1,'одно':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900};
+    var parts = raw.split(/\s+/), total = 0;
+    if (!parts.length || !parts.every(function(w){ return Object.prototype.hasOwnProperty.call(words,w); })) return null;
+    parts.forEach(function(w){ total += words[w]; });
+    return total;
+  }
+  function voiceUnit(s) {
+    s = voiceNormalize(s).replace(/[.,]/g, '');
+    if (/^(кг|килограмм|килограмма|килограммов|килограмме|килограммам|килограмму)$/.test(s)) return 'кг';
+    if (/^(г|грамм|грамма|граммов|грамме|граммам|грамму)$/.test(s)) return 'г';
+    if (/^(л|литр|литра|литров|литре|литрам|литру)$/.test(s)) return 'л';
+    if (/^(шт|штука|штуки|штук)$/.test(s)) return 'шт';
+    return s || null;
+  }
+  function voiceFindProducts(products, phrase) {
+    var q = voiceNormalize(phrase);
+    if (!q) return [];
+    var items = products || [];
+    var exact = items.filter(function(p) {
+      return [p.product_name, p.catalog_name, p.seller_name].filter(Boolean).some(function(n) { return voiceNormalize(n) === q; });
+    });
+    if (exact.length) return exact;
+    return items.filter(function(p) {
+      return [p.product_name, p.catalog_name, p.seller_name].filter(Boolean).some(function(n) {
+        var normalized = voiceNormalize(n);
+        return normalized.indexOf(q) >= 0 || q.indexOf(normalized) >= 0;
+      });
+    });
+  }
+  function voiceParseCommand(phrase, products) {
+    var s = voiceNormalize(phrase);
+    var search = s.match(/^(?:найди|найти|покажи|показать|открой|открыть)\s+(.+)$/);
+    if (search) return {type:'SEARCH', query:search[1]};
+    var command = s.match(/^(?:поставь|установи|измени|поменяй|сделай)\s+(.+?)\s+(?:по|цену)\s+(.+)$/);
+    if (!command) return {type:'UNKNOWN'};
+    var productPhrase = command[1].trim(), amountPhrase = command[2].trim();
+    var unitMatch = amountPhrase.match(/\s+за\s+(кг|килограмм(?:а|ов|ом|е|ам|у)?|г|грамм(?:а|ов|ом|е|ам|у)?|л|литр(?:а|ов|ом|е|ам|у)?|шт|штук|штука|штуки)$/);
+    var unit = unitMatch ? voiceUnit(unitMatch[1]) : null;
+    if (unitMatch) amountPhrase = amountPhrase.slice(0, unitMatch.index).trim();
+    var amount = voiceParseNumber(amountPhrase);
+    if (amount === null) return {type:'INVALID_PRICE'};
+    var matches = voiceFindProducts(products, productPhrase);
+    if (!matches.length) return {type:'NOT_FOUND', productPhrase:productPhrase};
+    if (matches.length > 1) return {type:'AMBIGUOUS', matches:matches, productPhrase:productPhrase, price:amount, unit:unit};
+    return {type:'SET_PRICE', product:matches[0], price:amount, unit:unit};
+  }
   function App() {
     var host = useHost();
     var width = useWidth();
@@ -1837,6 +1895,66 @@ label.f textarea{resize:vertical;min-height:48px}
       say('Витрина обновлена: показано ' + (r.updated || 0) + ', скрыто ' + (r.deactivated || 0)
           + (hidden ? '; без фото не показаны: ' + hidden : ''));
     }, [host.publishResult]);
+
+    var vr = useState(false), voiceListening = vr[0], setVoiceListening = vr[1];
+    var vc = useState(''), voiceTranscript = vc[0], setVoiceTranscript = vc[1];
+    var va = useState(null), voiceAction = va[0], setVoiceAction = va[1];
+    var voiceRecognition = useRef(null);
+    function stopVoice() {
+      if (voiceRecognition.current) { try { voiceRecognition.current.stop(); } catch (_) {} voiceRecognition.current = null; }
+      setVoiceListening(false);
+    }
+    function processVoicePhrase(phrase) {
+      setVoiceTranscript(phrase);
+      var parsed = voiceParseCommand(phrase, host.products);
+      if (parsed.type === 'SEARCH') { stopVoice(); setQuery(parsed.query); setPage(1); say('Поиск: ' + parsed.query); return; }
+      if (parsed.type === 'SET_PRICE') {
+        stopVoice();
+        if (host.readOnly || !host.connected) { say('Изменение цены доступно только в подключённом кабинете продавца'); return; }
+        if (parsed.unit && voiceUnit(parsed.unit) !== voiceUnit(parsed.product.unit)) {
+          say('Единица команды не совпадает с единицей товара (' + parsed.product.unit + '). Изменение отменено.'); return;
+        }
+        setVoiceAction(parsed); return;
+      }
+      if (parsed.type === 'AMBIGUOUS') { stopVoice(); setVoiceAction(parsed); return; }
+      stopVoice();
+      if (parsed.type === 'NOT_FOUND') say('Товар не найден: ' + parsed.productPhrase);
+      else if (parsed.type === 'INVALID_PRICE') say('Не удалось распознать цену. Пример: «Поставь яблоки по 89,90 рублей»');
+      else say('Команда не распознана. Пример: «Найди яблоки» или «Поставь яблоки по 120 рублей».');
+    }
+    function startVoice() {
+      var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) { say('Распознавание речи не поддерживается этим браузером. Используйте обычный поиск.'); return; }
+      stopVoice(); setVoiceTranscript('');
+      var recognition = new Recognition();
+      recognition.lang = 'ru-RU'; recognition.interimResults = false; recognition.maxAlternatives = 1;
+      voiceRecognition.current = recognition;
+      recognition.onstart = function(){ setVoiceListening(true); };
+      recognition.onresult = function(event) {
+        var phrase = event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : '';
+        processVoicePhrase(phrase);
+      };
+      recognition.onerror = function(event) {
+        stopVoice();
+        say(event.error === 'not-allowed' ? 'Нет доступа к микрофону. Разрешите доступ в браузере.' : 'Не удалось распознать речь (' + event.error + '). Можно использовать ручной ввод.');
+      };
+      recognition.onend = function(){ setVoiceListening(false); };
+      try { recognition.start(); } catch (_) { stopVoice(); say('Не удалось запустить микрофон. Используйте ручной ввод.'); }
+    }
+    function selectVoiceProduct(product) {
+      if (!voiceAction || voiceAction.type !== 'AMBIGUOUS') return;
+      if (voiceAction.unit && voiceUnit(voiceAction.unit) !== voiceUnit(product.unit)) {
+        say('Единица команды не совпадает с единицей товара (' + product.unit + '). Выберите товар с подходящей единицей или отмените команду.'); return;
+      }
+      setVoiceAction(Object.assign({}, voiceAction, {type:'SET_PRICE', product:product}));
+    }
+    function confirmVoicePrice() {
+      if (!voiceAction || voiceAction.type !== 'SET_PRICE') return;
+      var action = voiceAction;
+      setVoiceAction(null);
+      host.patchField(action.product.id, 'price', action.price);
+      say('Команда отправлена. Ожидается подтверждение сервера.');
+    }
 
     var mobile = view === 'mobile' || (view === 'auto' && width < 900);
     var narrow = width < 760;
@@ -1916,6 +2034,7 @@ label.f textarea{resize:vertical;min-height:48px}
           ${host.connected && !host.readOnly && html`<button className="btn" disabled=${host.publishing}
             title="Вывести на витрину все позиции с фотографиями; позиции без фотографий с витрины снимаются"
             onClick=${function () { host.publish(); }}>${host.publishing ? 'Обновляем…' : '⇧ Обновить витрину'}</button>`}
+          ${html`<button className="btn" disabled=${voiceListening} title="Голосовой поиск товара или изменение цены с подтверждением" onClick=${startVoice}>${voiceListening ? "🎙 Слушаю…" : "🎙 Голос"}</button>`}
           ${host.spreadsheetUrl && html`<a className="btn" href=${host.spreadsheetUrl} target="_blank" rel="noopener"
             title="Открыть рабочую книгу Google Sheets в новой вкладке">▤ Рабочая таблица</a>`}
           <button className="icon-btn" title="Перечитать каталог с сервера"
@@ -2063,6 +2182,21 @@ label.f textarea{resize:vertical;min-height:48px}
         saving=${host.creating} uploading=${false}
         onCreate=${function (fields, key, local) { host.createProduct(fields, key, local); }}
         onClose=${function () { setAdding(false); }} />`}
+
+      ${voiceAction && html`<div role="dialog" aria-modal="true" aria-label="Подтверждение голосовой команды"
+        style=${{position:'fixed',inset:0,zIndex:9999,background:'rgba(15,23,42,.48)',display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+        <div className="card" style=${{width:'min(520px, 100%)',padding:'22px',background:'var(--surface, #fff)'}}>
+          <h2 style=${{marginTop:0}}>Подтвердите голосовую команду</h2>
+          <p><b>Распознано:</b> ${voiceTranscript}</p>
+          ${voiceAction.type === 'AMBIGUOUS'
+            ? html`<p>Найдено несколько товаров. Выберите нужную позицию:</p><div style=${{display:'grid',gap:'8px'}}>${voiceAction.matches.slice(0,8).map(function(p){return html`<button key=${p.id} className="btn" style=${{textAlign:'left'}} onClick=${function(){selectVoiceProduct(p);}}>${p.product_name} — ${p.price} ₽ / ${p.unit}</button>`;})}</div>`
+            : html`<p>Изменить цену товара <b>${voiceAction.product.product_name}</b> на <b>${voiceAction.price} ₽</b>${voiceAction.product.unit ? ' / ' + voiceAction.product.unit : ''}?</p>`}
+          <div style=${{display:'flex',gap:'8px',justifyContent:'flex-end',flexWrap:'wrap'}}>
+            <button className="btn" onClick=${function(){setVoiceAction(null);say('Команда отменена');}}>Отмена</button>
+            ${voiceAction.type === 'SET_PRICE' && html`<button className="btn btn-primary" onClick=${confirmVoicePrice}>Подтвердить изменение</button>`}
+          </div>
+        </div>
+      </div>`}
 
       ${toast && html`<div className="toast">${toast}</div>`}
     </div>`;
