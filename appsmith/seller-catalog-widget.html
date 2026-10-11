@@ -1833,10 +1833,24 @@ label.f textarea{resize:vertical;min-height:48px}
       return [p.product_name, p.catalog_name, p.seller_name].filter(Boolean).some(function(n) { return voiceNormalize(n) === q; });
     });
     if (exact.length) return exact;
-    return items.filter(function(p) {
+    var partial = items.filter(function(p) {
       return [p.product_name, p.catalog_name, p.seller_name].filter(Boolean).some(function(n) {
         var normalized = voiceNormalize(n);
         return normalized.indexOf(q) >= 0 || q.indexOf(normalized) >= 0;
+      });
+    });
+    if (partial.length) return partial;
+    /* Voice phrases use inflected nouns ("молока", "яблок", "картофеля").
+       Stem matching is a fallback only; multiple matches still require selection. */
+    function stem(s) {
+      return voiceNormalize(s).split(/\s+/).map(function(word) {
+        return word.replace(/(ами|ями|ого|его|ому|ему|ыми|ими|ов|ев|ей|ам|ям|ах|ях|ой|ый|ий|ая|яя|ое|ее|ые|ие|а|я|ы|и|у|ю|е|о|ь)$/,'');
+      }).join(' ');
+    }
+    var queryStem = stem(q);
+    return items.filter(function(p) {
+      return [p.product_name, p.catalog_name, p.seller_name].filter(Boolean).some(function(n) {
+        return stem(n) === queryStem || stem(n).indexOf(queryStem) >= 0 || queryStem.indexOf(stem(n)) >= 0;
       });
     });
   }
