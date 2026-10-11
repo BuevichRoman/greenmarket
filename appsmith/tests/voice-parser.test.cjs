@@ -4,7 +4,18 @@ const assert = require('node:assert/strict');
 
 const html = fs.readFileSync(process.argv[2] || 'appsmith/seller-catalog-widget.html', 'utf8');
 
-const scriptBlocks = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
+const scriptBlocks = [];
+let scriptCursor = 0;
+while (true) {
+  const scriptOpen = html.indexOf('<script', scriptCursor);
+  if (scriptOpen < 0) break;
+  const scriptContentStart = html.indexOf('>', scriptOpen) + 1;
+  assert.ok(scriptContentStart > 0, 'Script opening tag must be closed');
+  const scriptClose = html.indexOf('</script>', scriptContentStart);
+  assert.ok(scriptClose >= 0, 'Script closing tag must exist');
+  scriptBlocks.push(html.slice(scriptContentStart, scriptClose));
+  scriptCursor = scriptClose + '</script>'.length;
+}
 assert.ok(scriptBlocks.length > 0, 'Widget must contain JavaScript');
 scriptBlocks.forEach((source, index) => {
   new vm.Script(source, {filename: 'seller-catalog-widget-script-' + index + '.js'});
