@@ -2078,9 +2078,11 @@ label.f textarea{resize:vertical;min-height:48px}
       seenStockResult.current = marker;
       if (result.ok === true) {
         var body = result.response || {};
+        var operation = body.operation || voiceStockRequest.payload.operation;
+        var unit = body.unit || voiceStockRequest.payload.unit;
         setVoiceStockRequest(null);
-        say((body.operation === 'SALE' ? 'Продажа записана' : 'Поступление записано') +
-          (body.stock_after !== undefined ? '. Остаток: ' + body.stock_after + ' ' + (body.unit || '') : '.'));
+        say((operation === 'SALE' ? 'Продажа записана' : 'Поступление записано') +
+          (body.stock_after !== undefined ? '. Остаток: ' + body.stock_after + ' ' + unit : '.'));
       } else if (result.known === false) {
         setVoiceStockRequest(function(current) {
           return current ? Object.assign({}, current, {status:'UNKNOWN', error:(result.error && result.error.message) || result.message || 'Результат операции неизвестен'}) : current;
