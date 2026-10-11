@@ -15,6 +15,7 @@ from app.api.v1.catalog import router as catalog_router
 from app.api.v1.photos import router as photos_router
 from app.api.v1.publications import router as publications_router
 from app.api.v1.seller import router as seller_router
+from app.api.v1.stock_operations import router as stock_operations_router
 from app.core.deployed_commit import read_deployed_commit
 from app.infrastructure.database import get_session
 
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(publications_router)
 app.include_router(catalog_router)
 app.include_router(seller_router)
+app.include_router(stock_operations_router)
 app.include_router(photos_router)
 app.include_router(admin_router)
 app.include_router(admin_catalog_router)
