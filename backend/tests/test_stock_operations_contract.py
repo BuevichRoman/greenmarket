@@ -91,6 +91,8 @@ def test_stock_operation_migration_contract_exists():
     )
     sql = migration.read_text(encoding="utf-8")
     assert "UNIQUE (seller_id, idempotency_key)" in sql
+    assert "seller_id BIGINT UNSIGNED NOT NULL" in sql
+    assert "seller_product_id BIGINT UNSIGNED NOT NULL" in sql
     assert "stock_before" in sql and "stock_after" in sql
     assert "FOREIGN KEY (seller_id) REFERENCES Seller(id)" in sql
     assert "FOREIGN KEY (seller_product_id)" in sql
