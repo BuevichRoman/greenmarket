@@ -359,3 +359,107 @@ def test_mysql_sale_and_idempotent_replay_change_stock_once(mysql_stock_context)
         text("SELECT COUNT(*) FROM SellerStockOperation WHERE seller_id = :seller_id AND idempotency_key = :key"),
         {"seller_id": seller_id, "key": request.idempotency_key},
     ).scalar_one() == 1
+
+
+
+def test_mysql_concurrent_duplicate_sale_applies_once():
+    """Two independent DB sessions racing on one idempotency key must write once."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from sqlalchemy import text
+
+    from app.infrastructure.database import SessionLocal
+
+    setup = SessionLocal()
+    user_id = seller_id = product_id = None
+    key = None
+    try:
+        user_id = setup.execute(
+            text("INSERT INTO users (name) VALUES (:name)"),
+            {"name": "GM concurrent stock operation test"},
+        ).lastrowid
+        seller_id = setup.execute(
+            text("INSERT INTO Seller (user_id) VALUES (:user_id)"),
+            {"user_id": user_id},
+        ).lastrowid
+        product_id = setup.execute(
+            text("""
+                INSERT INTO SellerProduct (seller_id, seller_name, stock, unit)
+                VALUES (:seller_id, :seller_name, :stock, :unit)
+            """),
+            {
+                "seller_id": seller_id,
+                "seller_name": "Товар для конкурентного теста",
+                "stock": Decimal("10.000"),
+                "unit": "кг",
+            },
+        ).lastrowid
+        setup.commit()
+        key = f"gm-stock-concurrent-{seller_id}-{product_id}"
+        request = make_request(
+            idempotency_key=key,
+            operation="SALE",
+            seller_product_id=product_id,
+            quantity=Decimal("2.000"),
+            unit="кг",
+        )
+        access = SellerAccess(seller_id=seller_id, published_by=user_id, name="Concurrent integration seller")
+        start = Barrier(2)
+
+        def worker():
+            session = SessionLocal()
+            try:
+                start.wait(timeout=10)
+                return create_stock_operation(request=request, session=session, access=access)
+            finally:
+                session.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first_future = pool.submit(worker)
+            second_future = pool.submit(worker)
+            results = [first_future.result(timeout=30), second_future.result(timeout=30)]
+
+        assert all(isinstance(result, dict) for result in results)
+        assert results[0]["operation_id"] == results[1]["operation_id"]
+        assert results[0]["stock_before"] == "10.000"
+        assert results[0]["stock_after"] == "8.000"
+
+        verify = SessionLocal()
+        try:
+            stock = verify.execute(
+                text("SELECT stock FROM SellerProduct WHERE id = :id"),
+                {"id": product_id},
+            ).scalar_one()
+            count = verify.execute(
+                text("""
+                    SELECT COUNT(*) FROM SellerStockOperation
+                    WHERE seller_id = :seller_id AND idempotency_key = :key
+                """),
+                {"seller_id": seller_id, "key": key},
+            ).scalar_one()
+            assert stock == Decimal("8.000")
+            assert count == 1
+        finally:
+            verify.close()
+    finally:
+        setup.rollback()
+        setup.close()
+        if seller_id is not None:
+            cleanup = SessionLocal()
+            try:
+                cleanup.execute(
+                    text("DELETE FROM SellerStockOperation WHERE seller_id = :seller_id"),
+                    {"seller_id": seller_id},
+                )
+                if product_id is not None:
+                    cleanup.execute(
+                        text("DELETE FROM SellerProduct WHERE id = :id"),
+                        {"id": product_id},
+                    )
+                cleanup.execute(text("DELETE FROM Seller WHERE id = :id"), {"id": seller_id})
+                if user_id is not None:
+                    cleanup.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+                cleanup.commit()
+            finally:
+                cleanup.close()
