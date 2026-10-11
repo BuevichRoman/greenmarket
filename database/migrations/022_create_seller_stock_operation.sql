@@ -13,6 +13,8 @@ CREATE TABLE SellerStockOperation (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     CONSTRAINT uk_SellerStockOperation_seller_key UNIQUE (seller_id, idempotency_key),
+    CONSTRAINT fk_SellerStockOperation_seller
+        FOREIGN KEY (seller_id) REFERENCES Seller(id),
     CONSTRAINT fk_SellerStockOperation_product
         FOREIGN KEY (seller_product_id) REFERENCES SellerProduct(id),
     CONSTRAINT chk_SellerStockOperation_quantity CHECK (quantity > 0),
