@@ -101,7 +101,6 @@ def test_stock_operation_migration_contract_exists():
 # claiming to replace MySQL integration/concurrency tests.
 from copy import deepcopy
 from datetime import datetime
-from types import SimpleNamespace
 
 from app.api.v1.stock_operations import create_stock_operation
 from app.publication.seller_access import SellerAccess
