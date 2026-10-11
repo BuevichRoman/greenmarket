@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 
 const html = fs.readFileSync(process.argv[2] || 'appsmith/seller-catalog-widget.html', 'utf8');
 
-const scriptBlocks = [...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)].map(match => match[1]);
+const scriptBlocks = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
 assert.ok(scriptBlocks.length > 0, 'Widget must contain JavaScript');
 scriptBlocks.forEach((source, index) => {
   new vm.Script(source, {filename: 'seller-catalog-widget-script-' + index + '.js'});
