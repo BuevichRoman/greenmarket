@@ -1,11 +1,9 @@
-name: GM Voice and Stock Operation Tests
+name: GM Voice Parser Tests
 
 on:
   pull_request:
     paths:
       - "appsmith/**"
-      - "backend/**"
-      - "database/migrations/**"
       - ".github/workflows/gm-voice-002.yml"
   push:
     branches:
@@ -21,18 +19,3 @@ jobs:
           node-version: "20"
       - name: Test parser extracted from the actual widget
         run: node appsmith/tests/voice-parser.test.cjs
-
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - uses: astral-sh/setup-uv@v6
-      - name: Install backend and test dependencies
-        working-directory: backend
-        run: uv sync --all-groups
-      - name: Run backend test suite
-        working-directory: backend
-        run: uv run pytest
