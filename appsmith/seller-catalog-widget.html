@@ -1849,8 +1849,8 @@ label.f textarea{resize:vertical;min-height:48px}
 
   /* GM-VOICE-002: parse stock movements without writing. */
   function voiceParseQuantity(s) {
-    var raw = voiceNormalize(s).replace(/\\s+/g, ' ').trim();
-    if (/^\\d+(?:[.,]\\d{1,3})?$/.test(raw)) {
+    var raw = voiceNormalize(s).replace(/\s+/g, ' ').trim();
+    if (/^\d+(?:[.,]\d{1,3})?$/.test(raw)) {
       var n = Number(raw.replace(',', '.'));
       return Number.isFinite(n) && n > 0 ? n : null;
     }
@@ -1859,11 +1859,11 @@ label.f textarea{resize:vertical;min-height:48px}
   }
   function voiceParseStockCommand(phrase, products) {
     var s = voiceNormalize(phrase);
-    var verb = s.match(/^(продал|продала|продать|продажа|списал|списала|списать|продано|принял|приняла|принять|поступило|приход|пришло|добавил|добавила|добавить|получил|получила)\\s+(.+)$/);
+    var verb = s.match(/^(продал|продала|продать|продажа|списал|списала|списать|продано|принял|приняла|принять|поступило|приход|пришло|добавил|добавила|добавить|получил|получила)\s+(.+)$/);
     if (!verb) return {type:'UNKNOWN'};
     var operation = /^(продал|продала|продать|продажа|списал|списала|списать|продано)$/.test(verb[1]) ? 'SALE' : 'INCOMING';
     var rest = verb[2];
-    var parsed = rest.match(/^(.+?)\\s+(кг|килограмм(?:а|ов|ом|е|ам|у)?|г|грамм(?:а|ов|ом|е|ам|у)?|л|литр(?:а|ов|ом|е|ам|у)?|шт|штук|штука|штуки)\\s+(.+)$/);
+    var parsed = rest.match(/^(.+?)\s+(кг|килограмм(?:а|ов|ом|е|ам|у)?|г|грамм(?:а|ов|ом|е|ам|у)?|л|литр(?:а|ов|ом|е|ам|у)?|шт|штук|штука|штуки)\s+(.+)$/);
     if (!parsed) return {type:'INVALID_QUANTITY'};
     var quantity = voiceParseQuantity(parsed[1]);
     if (quantity === null) return {type:'INVALID_QUANTITY'};
