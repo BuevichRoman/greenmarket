@@ -116,7 +116,7 @@ def create_stock_operation(
             session.rollback()
             return error_response(422, "UNIT_MISMATCH", f"Единица товара — {product_unit}; преобразование не выполняется")
 
-        stock_before = Decimal(product["stock"])
+        stock_before = Decimal(str(product["stock"]))
         if request.operation == "SALE":
             stock_after = stock_before - request.quantity
             if stock_after < 0:
