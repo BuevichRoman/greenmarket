@@ -129,7 +129,7 @@ class FakeStockSession:
     def __init__(self, *, stock=Decimal("10.000"), unit="кг", active=True, product_seller_id=7):
         self.seller_active = active
         self.product = {
-            "id": 10,
+            "id": 1,
             "seller_id": product_seller_id,
             "stock": stock,
             "unit": unit,
