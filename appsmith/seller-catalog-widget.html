@@ -45,7 +45,7 @@
       deactivated, hidden_no_photo, message, publication_id }) — необязательно;
       виджет показывает итог тостом. Различает по publication_id.
   model.stockOperationResult : результат события onStockOperation —
-      { idempotency_key, ok, response, error, at }. Успех показывается только
+      { idempotency_key, ok, known, response, error, at }. Успех показывается только
       после ответа API; таймаут оставляет результат неизвестным, повторяется
       тот же payload с тем же idempotency_key.
 
@@ -99,9 +99,8 @@
                      seller_product_id, quantity, unit }.
                      Хост: POST /api/v1/seller/stock-operations с Bearer-токеном.
                      После ответа записать model.stockOperationResult =
-                     { idempotency_key, ok, response, error, at }. ok=true только
-                     для успешного ответа API; timeout/сетевая ошибка — ok не
-                     true, пока результат не выяснен. Повтор использует тот же
+                     { idempotency_key, ok, known, response, error, at }. ok=true только
+                     для успешного ответа API; timeout/сетевая ошибка — known=false, пока результат не выяснен. Повтор использует тот же
                      payload и ключ. Отмена до подтверждения не вызывает событие.
       onRefresh      pending = {}
   ─────────────────────────────────────────────────────────────────────────────
@@ -2068,9 +2067,14 @@ label.f textarea{resize:vertical;min-height:48px}
         setVoiceStockRequest(null);
         say((body.operation === 'SALE' ? 'Продажа записана' : 'Поступление записано') +
           (body.stock_after !== undefined ? '. Остаток: ' + body.stock_after + ' ' + (body.unit || '') : '.'));
+      } else if (result.known === false) {
+        setVoiceStockRequest(function(current) {
+          return current ? Object.assign({}, current, {status:'UNKNOWN', error:(result.error && result.error.message) || result.message || 'Результат операции неизвестен'}) : current;
+        });
+        say('Сервер не подтвердил результат. Повторите запрос с тем же ключом идемпотентности.');
       } else {
         setVoiceStockRequest(null);
-        say('Операция не подтверждена сервером: ' + ((result.error && result.error.message) || result.message || 'ошибка запроса'));
+        say('Операция отклонена сервером: ' + ((result.error && result.error.message) || result.message || 'ошибка запроса'));
       }
     }, [host.stockOperationResult, voiceStockRequest]);
     function confirmVoicePrice() {
