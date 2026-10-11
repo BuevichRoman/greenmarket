@@ -90,8 +90,8 @@ def create_stock_operation(
     seller_status = SellerGateway(session).get_status(access.seller_id)
     if seller_status is None:
         return error_response(404, "SELLER_NOT_FOUND", "Продавец не найден")
-    if not seller_status.is_active:
-        return error_response(403, "SELLER_INACTIVE", "Учётная запись продавца неактивна")
+    # Seller.is_active controls buyer-facing catalog visibility, not cabinet authorization.
+    # Seller bearer access has already been authenticated by get_seller_bearer_access.
 
     try:
         # Fast path: a replay must return the original result even if its changed
