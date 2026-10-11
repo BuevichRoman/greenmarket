@@ -95,3 +95,185 @@ def test_stock_operation_migration_contract_exists():
     assert "FOREIGN KEY (seller_id) REFERENCES Seller(id)" in sql
     assert "FOREIGN KEY (seller_product_id)" in sql
     assert "CHECK (quantity > 0)" in sql
+
+
+# These focused endpoint tests exercise the transaction decision path without
+# claiming to replace MySQL integration/concurrency tests.
+from copy import deepcopy
+from datetime import datetime
+from types import SimpleNamespace
+
+from app.api.v1.stock_operations import create_stock_operation
+from app.publication.seller_access import SellerAccess
+
+
+class FakeResult:
+    def __init__(self, row=None, lastrowid=None):
+        self.row = row
+        self.lastrowid = lastrowid
+
+    def first(self):
+        return self.row
+
+    def mappings(self):
+        return self
+
+    def one(self):
+        if self.row is None:
+            raise AssertionError("Expected one row")
+        return self.row
+
+
+class FakeStockSession:
+    def __init__(self, *, stock=Decimal("10.000"), unit="кг", active=True, product_seller_id=7):
+        self.seller_active = active
+        self.product = {
+            "id": 10,
+            "seller_id": product_seller_id,
+            "stock": stock,
+            "unit": unit,
+            "version": 1,
+        }
+        self.operations = []
+        self.next_id = 1
+        self.snapshot = None
+
+    def _begin(self):
+        if self.snapshot is None:
+            self.snapshot = (
+                deepcopy(self.product),
+                deepcopy(self.operations),
+                self.next_id,
+            )
+
+    def execute(self, statement, params=None):
+        self._begin()
+        sql = str(statement)
+        params = params or {}
+
+        if "SELECT is_active, current_catalog_version, spreadsheet_id FROM Seller" in sql:
+            return FakeResult((self.seller_active, 1, None))
+
+        if "FROM SellerStockOperation" in sql and "WHERE seller_id = :seller_id" in sql:
+            row = next((
+                deepcopy(op) for op in self.operations
+                if op["seller_id"] == params["seller_id"]
+                and op["idempotency_key"] == params["key"]
+            ), None)
+            return FakeResult(row)
+
+        if "FROM SellerStockOperation WHERE id = :id" in sql:
+            row = next((deepcopy(op) for op in self.operations if op["id"] == params["id"]), None)
+            return FakeResult(row)
+
+        if "FROM SellerProduct" in sql and "FOR UPDATE" in sql:
+            row = self.product
+            if row is None or row["id"] != params["product_id"] or row["seller_id"] != params["seller_id"]:
+                return FakeResult(None)
+            return FakeResult(deepcopy(row))
+
+        if sql.lstrip().startswith("UPDATE SellerProduct"):
+            self.product["stock"] = Decimal(str(params["stock_after"]))
+            self.product["version"] += 1
+            return FakeResult()
+
+        if sql.lstrip().startswith("INSERT INTO SellerStockOperation"):
+            row = {
+                "id": self.next_id,
+                "seller_id": params["seller_id"],
+                "seller_product_id": params["product_id"],
+                "idempotency_key": params["key"],
+                "operation": params["operation"],
+                "quantity": Decimal(params["quantity"]),
+                "unit": params["unit"],
+                "stock_before": Decimal(params["stock_before"]),
+                "stock_after": Decimal(params["stock_after"]),
+                "created_at": datetime(2026, 10, 11, 12, 0, 0),
+            }
+            self.operations.append(row)
+            self.next_id += 1
+            return FakeResult(lastrowid=row["id"])
+
+        raise AssertionError(f"Unexpected SQL: {sql}")
+
+    def commit(self):
+        self.snapshot = None
+
+    def rollback(self):
+        if self.snapshot is not None:
+            self.product, self.operations, self.next_id = self.snapshot
+            self.snapshot = None
+
+
+def call_operation(session, request):
+    return create_stock_operation(
+        request=request,
+        session=session,
+        access=SellerAccess(seller_id=7, published_by=1, name="Seller"),
+    )
+
+
+def test_sale_updates_stock_and_duplicate_replay_does_not_apply_twice():
+    session = FakeStockSession()
+    request = make_request(operation="SALE", quantity=Decimal("2"))
+    result = call_operation(session, request)
+    assert result["stock_before"] == "10.000"
+    assert result["stock_after"] == "8.000"
+    assert session.product["stock"] == Decimal("8")
+    assert len(session.operations) == 1
+
+    replay = call_operation(session, request)
+    assert replay["operation_id"] == result["operation_id"]
+    assert session.product["stock"] == Decimal("8")
+    assert len(session.operations) == 1
+
+
+def test_incoming_increases_stock_and_records_operation():
+    session = FakeStockSession()
+    result = call_operation(session, make_request(operation="INCOMING", quantity=Decimal("1.5")))
+    assert result["stock_before"] == "10.000"
+    assert result["stock_after"] == "11.500"
+    assert session.product["stock"] == Decimal("11.500")
+    assert session.operations[0]["operation"] == "INCOMING"
+
+
+def test_sale_over_available_stock_does_not_write():
+    session = FakeStockSession(stock=Decimal("1.000"))
+    result = call_operation(session, make_request(quantity=Decimal("2")))
+    assert result.status_code == 409
+    assert session.product["stock"] == Decimal("1.000")
+    assert session.operations == []
+
+
+def test_unit_mismatch_does_not_write():
+    session = FakeStockSession(unit="л")
+    result = call_operation(session, make_request(unit="кг"))
+    assert result.status_code == 422
+    assert session.product["stock"] == Decimal("10.000")
+    assert session.operations == []
+
+
+def test_reusing_key_with_different_payload_conflicts_without_second_write():
+    session = FakeStockSession()
+    first = call_operation(session, make_request(quantity=Decimal("1")))
+    assert first["stock_after"] == "9.000"
+    second = call_operation(session, make_request(quantity=Decimal("2")))
+    assert second.status_code == 409
+    assert session.product["stock"] == Decimal("9")
+    assert len(session.operations) == 1
+
+
+def test_inactive_seller_cannot_register_stock_operation():
+    session = FakeStockSession(active=False)
+    result = call_operation(session, make_request())
+    assert result.status_code == 403
+    assert session.product["stock"] == Decimal("10.000")
+    assert session.operations == []
+
+
+def test_foreign_seller_product_is_not_mutated():
+    session = FakeStockSession(product_seller_id=8)
+    result = call_operation(session, make_request())
+    assert result.status_code == 404
+    assert session.product["stock"] == Decimal("10.000")
+    assert session.operations == []
