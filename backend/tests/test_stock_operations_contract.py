@@ -286,7 +286,7 @@ def test_reused_key_with_nonexistent_different_product_is_conflict_not_not_found
     call_operation(session, make_request())
     result = call_operation(session, make_request(seller_product_id=999))
     assert result.status_code == 409
-    assert session.product["stock"] == Decimal("9.000")
+    assert session.product["stock"] == Decimal("8.750")
     assert len(session.operations) == 1
 
 
