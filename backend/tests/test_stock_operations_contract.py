@@ -152,7 +152,7 @@ class FakeStockSession:
         sql = str(statement)
         params = params or {}
 
-        if "SELECT is_active, current_catalog_version, spreadsheet_id FROM Seller" in sql:
+        if "current_catalog_version" in sql and "FROM Seller" in sql and "is_active" in sql:
             return FakeResult((self.seller_active, 1, None))
 
         if "FROM SellerStockOperation" in sql and "WHERE seller_id = :seller_id" in sql:
