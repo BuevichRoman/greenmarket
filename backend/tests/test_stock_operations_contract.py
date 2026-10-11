@@ -43,6 +43,14 @@ def test_request_requires_known_operation():
 def test_request_trims_unit(unit):
     assert make_request(unit=unit).unit == "кг"
 
+def test_request_trims_idempotency_key():
+    assert make_request(idempotency_key="  test-key  ").idempotency_key == "test-key"
+
+
+def test_request_rejects_blank_idempotency_key():
+    with pytest.raises(ValidationError):
+        make_request(idempotency_key="   ")
+
 
 def test_request_rejects_blank_unit():
     with pytest.raises(ValidationError):
