@@ -459,7 +459,7 @@ def test_mysql_concurrent_duplicate_sale_applies_once():
                     )
                 cleanup.execute(text("DELETE FROM Seller WHERE id = :id"), {"id": seller_id})
                 if user_id is not None:
-                    cleanup.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+                    cleanup.execute(text("DELETE FROM users WHERE id_user = :id"), {"id": user_id})
                 cleanup.commit()
             finally:
                 cleanup.close()
