@@ -264,13 +264,14 @@ def test_reusing_key_with_different_payload_conflicts_without_second_write():
     assert len(session.operations) == 1
 
 
-def test_inactive_seller_cannot_register_stock_operation():
+def test_catalog_deactivation_does_not_disable_seller_cabinet_stock_operations():
+    # Seller.is_active controls buyer-facing catalog visibility only.
     session = FakeStockSession(active=False)
-    result = call_operation(session, make_request())
-    assert result.status_code == 403
-    assert session.product["stock"] == Decimal("10.000")
-    assert session.operations == []
-
+    result = call_operation(session, make_request(quantity=Decimal("1")))
+    assert result["stock_before"] == "10.000"
+    assert result["stock_after"] == "9.000"
+    assert session.product["stock"] == Decimal("9.000")
+    assert len(session.operations) == 1
 
 def test_incoming_that_exceeds_decimal_capacity_does_not_write():
     session = FakeStockSession(stock=Decimal("999999999.999"))
