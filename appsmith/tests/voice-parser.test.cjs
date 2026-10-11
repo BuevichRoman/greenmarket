@@ -65,6 +65,11 @@ assert.equal(r.type, 'STOCK_OPERATION');
 assert.equal(r.operation, 'SALE');
 assert.equal(r.unit, 'л');
 
+r = context.voiceParseStockCommand('Принял 2 л Молока', products);
+assert.equal(r.type, 'STOCK_OPERATION', 'inflected product names must resolve');
+assert.equal(r.operation, 'INCOMING');
+assert.equal(r.product.id, 3);
+
 r = context.voiceParseStockCommand('Продал 2 кг Яблоки', products);
 assert.equal(r.type, 'AMBIGUOUS_STOCK');
 assert.equal(r.matches.length, 2, 'ambiguous stock item must require explicit selection');
@@ -75,4 +80,4 @@ assert.equal(r.type, 'INVALID_QUANTITY');
 r = context.voiceParseStockCommand('Продал 2 кг Несуществующий товар', products);
 assert.equal(r.type, 'NOT_FOUND');
 
-console.log('GreenMarket voice parser tests passed: 14 cases');
+console.log('GreenMarket voice parser tests passed: 15 cases');
