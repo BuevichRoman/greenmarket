@@ -2,8 +2,8 @@
 -- MySQL 8 / InnoDB. Остаток и операция записываются одной транзакцией.
 CREATE TABLE SellerStockOperation (
     id BIGINT NOT NULL AUTO_INCREMENT,
-    seller_id INT NOT NULL,
-    seller_product_id INT NOT NULL,
+    seller_id BIGINT UNSIGNED NOT NULL,
+    seller_product_id BIGINT UNSIGNED NOT NULL,
     idempotency_key VARCHAR(64) NOT NULL,
     operation ENUM('SALE', 'INCOMING') NOT NULL,
     quantity DECIMAL(12,3) NOT NULL,
