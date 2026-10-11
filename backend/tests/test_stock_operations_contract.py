@@ -295,3 +295,66 @@ def test_foreign_seller_product_is_not_mutated():
     assert result.status_code == 404
     assert session.product["stock"] == Decimal("10.000")
     assert session.operations == []
+
+
+
+@pytest.fixture
+def mysql_stock_context(committing_session):
+    """Real MySQL fixture; the outer transaction is rolled back by conftest."""
+    from sqlalchemy import text
+
+    session = committing_session
+    user_id = session.execute(
+        text("INSERT INTO users (name) VALUES (:name)"),
+        {"name": "GM stock operation integration test"},
+    ).lastrowid
+    seller_id = session.execute(
+        text("INSERT INTO Seller (user_id) VALUES (:user_id)"),
+        {"user_id": user_id},
+    ).lastrowid
+    product_id = session.execute(
+        text("""
+            INSERT INTO SellerProduct (seller_id, seller_name, stock, unit)
+            VALUES (:seller_id, :seller_name, :stock, :unit)
+        """),
+        {
+            "seller_id": seller_id,
+            "seller_name": "Товар для проверки складских операций",
+            "stock": Decimal("10.000"),
+            "unit": "кг",
+        },
+    ).lastrowid
+    return session, seller_id, user_id, product_id
+
+
+def test_mysql_sale_and_idempotent_replay_change_stock_once(mysql_stock_context):
+    from sqlalchemy import text
+
+    session, seller_id, user_id, product_id = mysql_stock_context
+    request = make_request(
+        idempotency_key=f"gm-stock-test-{seller_id}",
+        operation="SALE",
+        seller_product_id=product_id,
+        quantity=Decimal("2.000"),
+        unit="кг",
+    )
+    access = SellerAccess(seller_id=seller_id, published_by=user_id, name="Integration seller")
+
+    first = create_stock_operation(request=request, session=session, access=access)
+    assert first["stock_before"] == "10.000"
+    assert first["stock_after"] == "8.000"
+    assert session.execute(
+        text("SELECT stock FROM SellerProduct WHERE id = :id"),
+        {"id": product_id},
+    ).scalar_one() == Decimal("8.000")
+
+    replay = create_stock_operation(request=request, session=session, access=access)
+    assert replay["operation_id"] == first["operation_id"]
+    assert session.execute(
+        text("SELECT stock FROM SellerProduct WHERE id = :id"),
+        {"id": product_id},
+    ).scalar_one() == Decimal("8.000")
+    assert session.execute(
+        text("SELECT COUNT(*) FROM SellerStockOperation WHERE seller_id = :seller_id AND idempotency_key = :key"),
+        {"seller_id": seller_id, "key": request.idempotency_key},
+    ).scalar_one() == 1
