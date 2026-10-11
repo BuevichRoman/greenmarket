@@ -25,6 +25,11 @@ class StockOperationRequest(BaseModel):
     quantity: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
     unit: str = Field(min_length=1, max_length=30)
 
+    @field_validator("idempotency_key", mode="before")
+    @classmethod
+    def normalize_idempotency_key(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     @field_validator("unit", mode="before")
     @classmethod
     def normalize_unit(cls, value):
@@ -124,6 +129,11 @@ def create_stock_operation(
                 return error_response(409, "INSUFFICIENT_STOCK", "Недостаточно остатка для продажи")
         else:
             stock_after = stock_before + request.quantity
+
+        # SellerProduct.stock is DECIMAL(12,3): reject overflow before SQL writes.
+        if stock_after > Decimal("999999999.999"):
+            session.rollback()
+            return error_response(422, "STOCK_LIMIT_EXCEEDED", "Остаток превышает допустимое значение")
 
         session.execute(text("""
             UPDATE SellerProduct
