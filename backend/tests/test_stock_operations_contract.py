@@ -1,4 +1,3 @@
-from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -85,5 +84,6 @@ def test_stock_operation_migration_contract_exists():
     sql = migration.read_text(encoding="utf-8")
     assert "UNIQUE (seller_id, idempotency_key)" in sql
     assert "stock_before" in sql and "stock_after" in sql
+    assert "FOREIGN KEY (seller_id) REFERENCES Seller(id)" in sql
     assert "FOREIGN KEY (seller_product_id)" in sql
     assert "CHECK (quantity > 0)" in sql
