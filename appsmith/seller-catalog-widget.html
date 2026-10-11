@@ -1787,7 +1787,7 @@ label.f textarea{resize:vertical;min-height:48px}
     return value.replace(/[«»"'!?;:()]/g, ' ').replace(/§DECIMAL_COMMA§/g, ',').replace(/§DECIMAL_DOT§/g, '.').replace(/\s+/g, ' ').trim();
   }
   function voiceParseNumber(s) {
-    var raw = voiceNormalize(s).replace(/\b(?:рублей|рубля|рубль|руб|р)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    var raw = voiceNormalize(s).replace(/(^|\s)(?:рублей|рубля|рубль|руб|р)(?=\s|$)/g, '$1').replace(/\s+/g, ' ').trim();
     if (/^\d+(?:[.,]\d{1,2})?$/.test(raw)) {
       var n = Number(raw.replace(',', '.'));
       return Number.isFinite(n) && n >= 0 ? n : null;
