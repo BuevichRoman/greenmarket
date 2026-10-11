@@ -44,6 +44,10 @@
   model.publishResult : ответ POST /api/v1/seller/catalog/publish ({ updated,
       deactivated, hidden_no_photo, message, publication_id }) — необязательно;
       виджет показывает итог тостом. Различает по publication_id.
+  model.stockOperationResult : результат события onStockOperation —
+      { idempotency_key, ok, response, error, at }. Успех показывается только
+      после ответа API; таймаут оставляет результат неизвестным, повторяется
+      тот же payload с тем же idempotency_key.
 
   Правка цены/остатка — мгновенная, без «Опубликовать»: в Seller Catalog API
   нет пакетной публикации, PATCH сразу меняет то, что видит покупатель.
@@ -91,6 +95,14 @@
                      кабинета выставляет видимость всем позициям разом:
                      с фотографией — на витрине, без — скрыта. Это правило
                      сервера, кнопка «Обновить витрину» его только вызывает.
+      onStockOperation pending = { idempotency_key, operation: "SALE"|"INCOMING",
+                     seller_product_id, quantity, unit }.
+                     Хост: POST /api/v1/seller/stock-operations с Bearer-токеном.
+                     После ответа записать model.stockOperationResult =
+                     { idempotency_key, ok, response, error, at }. ok=true только
+                     для успешного ответа API; timeout/сетевая ошибка — ok не
+                     true, пока результат не выяснен. Повтор использует тот же
+                     payload и ключ. Отмена до подтверждения не вызывает событие.
       onRefresh      pending = {}
   ─────────────────────────────────────────────────────────────────────────────
 -->
