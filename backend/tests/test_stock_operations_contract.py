@@ -270,6 +270,23 @@ def test_inactive_seller_cannot_register_stock_operation():
     assert session.operations == []
 
 
+def test_incoming_that_exceeds_decimal_capacity_does_not_write():
+    session = FakeStockSession(stock=Decimal("999999999.999"))
+    result = call_operation(session, make_request(operation="INCOMING", quantity=Decimal("0.001")))
+    assert result.status_code == 422
+    assert session.product["stock"] == Decimal("999999999.999")
+    assert session.operations == []
+
+
+def test_reused_key_with_nonexistent_different_product_is_conflict_not_not_found():
+    session = FakeStockSession()
+    call_operation(session, make_request())
+    result = call_operation(session, make_request(seller_product_id=999))
+    assert result.status_code == 409
+    assert session.product["stock"] == Decimal("9.000")
+    assert len(session.operations) == 1
+
+
 def test_foreign_seller_product_is_not_mutated():
     session = FakeStockSession(product_seller_id=8)
     result = call_operation(session, make_request())
