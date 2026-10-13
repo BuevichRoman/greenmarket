@@ -101,7 +101,8 @@
                      После ответа записать model.stockOperationResult =
                      { idempotency_key, ok, known, response, error, at }. ok=true только
                      для успешного ответа API; timeout/сетевая ошибка — known=false, пока результат не выяснен. Повтор использует тот же
-                     payload и ключ. Отмена до подтверждения не вызывает событие.
+                     payload и ключ. После подтверждённого ответа перечитать список товаров,
+                     чтобы виджет получил актуальные stock/version. Отмена до подтверждения не вызывает событие.
       onRefresh      pending = {}
   ─────────────────────────────────────────────────────────────────────────────
 -->
@@ -1803,19 +1804,19 @@ label.f textarea{resize:vertical;min-height:48px}
   function voiceNormalize(s) {
     var value = String(s || '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim();
     value = value.replace(/(\d),(\d)/g, '$1§DECIMAL_COMMA§$2').replace(/(\d)\.(\d)/g, '$1§DECIMAL_DOT§$2');
-    return value.replace(/[«»"'!?;:()]/g, ' ').replace(/§DECIMAL_COMMA§/g, ',').replace(/§DECIMAL_DOT§/g, '.').replace(/\s+/g, ' ').trim();
+    return value.replace(/[«»"'!?;:()]/g, ' ').replace(/§DECIMAL_COMMA§/g, ',').replace(/§DECIMAL_DOT§/g, '.').replace(/\s+/g, ' ').trim().replace(/[.,]+$/, '');
   }
   function voiceParseNumber(s) {
-    var raw = voiceNormalize(s).replace(/(^|\s)(?:рублей|рубля|рубль|руб|р)(?=\s|$)/g, '$1').replace(/\s+/g, ' ').trim();
+    var raw = voiceNormalize(s).replace(/₽/g, ' ').replace(/(^|\s)(?:рублей|рубля|рубль|руб|р)(?=\s|$)/g, '$1').replace(/\s+/g, ' ').trim();
     if (/^\d+(?:[.,]\d{1,2})?$/.test(raw)) {
       var n = Number(raw.replace(',', '.'));
-      return Number.isFinite(n) && n >= 0 ? n : null;
+      return Number.isFinite(n) && n > 0 ? n : null;
     }
     var words = {'ноль':0,'один':1,'одна':1,'одно':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900};
     var parts = raw.split(/\s+/), total = 0;
     if (!parts.length || !parts.every(function(w){ return Object.prototype.hasOwnProperty.call(words,w); })) return null;
     parts.forEach(function(w){ total += words[w]; });
-    return total;
+    return total > 0 ? total : null;
   }
   function voiceUnit(s) {
     s = voiceNormalize(s).replace(/[.,]/g, '');
@@ -2037,7 +2038,7 @@ label.f textarea{resize:vertical;min-height:48px}
         operation: voiceAction.operation,
         seller_product_id: Number(voiceAction.product.id),
         quantity: String(voiceAction.quantity),
-        unit: voiceAction.unit
+        unit: String(voiceAction.product.unit || voiceAction.unit).trim()
       };
       if (!Number.isInteger(payload.seller_product_id) || payload.seller_product_id <= 0) {
         say('Не удалось определить серверный ID товара. Операция не отправлена.'); return;
@@ -2095,6 +2096,11 @@ label.f textarea{resize:vertical;min-height:48px}
     }, [host.stockOperationResult, voiceStockRequest]);
     function confirmVoicePrice() {
       if (!voiceAction || voiceAction.type !== 'SET_PRICE') return;
+      if (host.readOnly || !host.connected) {
+        setVoiceAction(null);
+        say('Изменение цены доступно только в подключённом кабинете продавца');
+        return;
+      }
       var action = voiceAction;
       setVoiceAction(null);
       host.patchField(action.product.id, 'price', action.price);
