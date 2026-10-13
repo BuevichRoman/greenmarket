@@ -2360,6 +2360,7 @@ label.f textarea{resize:vertical;min-height:48px}
             ? 'Операция отправлена. Не закрывайте это окно до ответа. Сервер должен подтвердить результат.'
             : 'Ответ не получен. Операция могла быть выполнена. Не создавайте новую команду: повтор отправит тот же ключ идемпотентности.'}</p>
           ${voiceStockRequest.status === 'UNKNOWN' && html`<button className="btn btn-primary" onClick=${retryVoiceStock}>Повторить тот же запрос</button>`}
+          <button className="btn" onClick=${function(){setVoiceStockRequest(null);}}>Закрыть</button>
         </div>
       </div>`}
       ${toast && html`<div className="toast">${toast}</div>`}
