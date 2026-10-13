@@ -23,6 +23,10 @@ scriptBlocks.forEach((source, index) => {
 const start = html.indexOf('  /* GM-VOICE-001 parser — tested directly from this widget source. */');
 const end = html.indexOf('  function App() {', start);
 assert.ok(start >= 0 && end > start, 'Voice parsers must be present in widget source');
+const confirmStart = html.indexOf('function confirmVoicePrice()');
+const confirmEnd = html.indexOf('\n    var mobile', confirmStart);
+assert.ok(confirmStart >= 0 && confirmEnd > confirmStart, 'Voice price confirmation must exist');
+assert.match(html.slice(confirmStart, confirmEnd), /host\.readOnly \|\| !host\.connected/, 'Voice price confirmation must guard read-only/disconnected mode');
 
 const context = {};
 vm.createContext(context);
@@ -113,4 +117,4 @@ assert.equal(r.type, 'INVALID_QUANTITY');
 r = context.voiceParseStockCommand('Продал 2 кг Несуществующий товар', products);
 assert.equal(r.type, 'NOT_FOUND');
 
-console.log('GreenMarket voice parser tests passed: 15 cases');
+console.log('GreenMarket voice parser tests passed: 23 cases plus read-only guard');
