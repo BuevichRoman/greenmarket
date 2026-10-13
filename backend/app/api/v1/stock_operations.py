@@ -49,13 +49,21 @@ def _operation_result(row) -> dict:
     }
 
 
-def _find_by_key(session: Session, seller_id: int, key: str):
-    return session.execute(text("""
+def _find_by_key(session: Session, seller_id: int, key: str, *, current_read: bool = False):
+    # A locking read sees the latest committed row even under REPEATABLE READ.
+    # The post-product-lock idempotency check must not reuse the transaction snapshot
+    # created earlier by seller authentication/status reads.
+    query = """
         SELECT id, seller_id, seller_product_id, idempotency_key, operation,
                quantity, unit, stock_before, stock_after, created_at
         FROM SellerStockOperation
         WHERE seller_id = :seller_id AND idempotency_key = :key
-    """), {"seller_id": seller_id, "key": key}).mappings().first()
+    """
+    if current_read:
+        query += " FOR SHARE"
+    return session.execute(
+        text(query), {"seller_id": seller_id, "key": key}
+    ).mappings().first()
 
 
 def _same_payload(existing, request: StockOperationRequest) -> bool:
@@ -67,8 +75,16 @@ def _same_payload(existing, request: StockOperationRequest) -> bool:
     )
 
 
-def _existing_response(session: Session, seller_id: int, request: StockOperationRequest):
-    existing = _find_by_key(session, seller_id, request.idempotency_key)
+def _existing_response(
+    session: Session,
+    seller_id: int,
+    request: StockOperationRequest,
+    *,
+    current_read: bool = False,
+):
+    existing = _find_by_key(
+        session, seller_id, request.idempotency_key, current_read=current_read
+    )
     if existing is None:
         return None
     session.rollback()
@@ -112,7 +128,9 @@ def create_stock_operation(
 
         # Another request may have committed while this request waited for the
         # product lock. The unique constraint remains the final cross-product guard.
-        replay = _existing_response(session, access.seller_id, request)
+        replay = _existing_response(
+            session, access.seller_id, request, current_read=True
+        )
         if replay is not None:
             return replay
 
