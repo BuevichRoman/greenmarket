@@ -1,0 +1,21 @@
+name: GM Voice Parser Tests
+
+on:
+  pull_request:
+    paths:
+      - "appsmith/**"
+      - ".github/workflows/gm-voice-002.yml"
+  push:
+    branches:
+      - main
+
+jobs:
+  voice-parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Test parser extracted from the actual widget
+        run: node appsmith/tests/voice-parser.test.cjs
