@@ -391,7 +391,7 @@ def test_mysql_concurrent_duplicate_sale_applies_once():
             {
                 "seller_id": seller_id,
                 "seller_name": "Товар для конкурентного теста",
-                "stock": Decimal("10.000"),
+                "stock": Decimal("2.000"),
                 "unit": "кг",
             },
         ).lastrowid
@@ -422,8 +422,8 @@ def test_mysql_concurrent_duplicate_sale_applies_once():
 
         assert all(isinstance(result, dict) for result in results)
         assert results[0]["operation_id"] == results[1]["operation_id"]
-        assert results[0]["stock_before"] == "10.000"
-        assert results[0]["stock_after"] == "8.000"
+        assert results[0]["stock_before"] == "2.000"
+        assert results[0]["stock_after"] == "0.000"
 
         verify = SessionLocal()
         try:
@@ -438,7 +438,7 @@ def test_mysql_concurrent_duplicate_sale_applies_once():
                 """),
                 {"seller_id": seller_id, "key": key},
             ).scalar_one()
-            assert stock == Decimal("8.000")
+            assert stock == Decimal("0.000")
             assert count == 1
         finally:
             verify.close()
