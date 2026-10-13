@@ -1964,6 +1964,7 @@ label.f textarea{resize:vertical;min-height:48px}
     var vc = useState(''), voiceTranscript = vc[0], setVoiceTranscript = vc[1];
     var va = useState(null), voiceAction = va[0], setVoiceAction = va[1];
     var vsr = useState(null), voiceStockRequest = vsr[0], setVoiceStockRequest = vsr[1];
+    var vss = useState(true), showVoiceStockStatus = vss[0], setShowVoiceStockStatus = vss[1];
     var voiceRecognition = useRef(null);
     function stopVoice() {
       if (voiceRecognition.current) { try { voiceRecognition.current.stop(); } catch (_) {} voiceRecognition.current = null; }
@@ -2045,6 +2046,7 @@ label.f textarea{resize:vertical;min-height:48px}
       }
       setVoiceAction(null);
       setVoiceStockRequest({payload:payload, status:'SENT', error:null});
+      setShowVoiceStockStatus(true);
       if (!host.stockOperation(payload)) {
         setVoiceStockRequest({payload:payload, status:'UNKNOWN', error:'Хост не принял запрос'});
         say('Результат операции неизвестен. Повторяйте только с тем же ключом.');
@@ -2055,6 +2057,7 @@ label.f textarea{resize:vertical;min-height:48px}
     function retryVoiceStock() {
       if (!voiceStockRequest || voiceStockRequest.status !== 'UNKNOWN') return;
       setVoiceStockRequest({payload:voiceStockRequest.payload, status:'SENT', error:null});
+      setShowVoiceStockStatus(true);
       host.stockOperation(voiceStockRequest.payload);
       say('Повторяем запрос с тем же ключом операции.');
     }
@@ -2186,6 +2189,7 @@ label.f textarea{resize:vertical;min-height:48px}
             title="Вывести на витрину все позиции с фотографиями; позиции без фотографий с витрины снимаются"
             onClick=${function () { host.publish(); }}>${host.publishing ? 'Обновляем…' : '⇧ Обновить витрину'}</button>`}
           ${html`<button className="btn" disabled=${voiceListening} title="Голосовой поиск товара или изменение цены с подтверждением" onClick=${startVoice}>${voiceListening ? "🎙 Слушаю…" : "🎙 Голос"}</button>`}
+          ${voiceStockRequest && !showVoiceStockStatus && html`<button className="btn" onClick=${function(){setShowVoiceStockStatus(true);}}>Статус операции</button>`}
           ${host.spreadsheetUrl && html`<a className="btn" href=${host.spreadsheetUrl} target="_blank" rel="noopener"
             title="Открыть рабочую книгу Google Sheets в новой вкладке">▤ Рабочая таблица</a>`}
           <button className="icon-btn" title="Перечитать каталог с сервера"
@@ -2352,15 +2356,15 @@ label.f textarea{resize:vertical;min-height:48px}
         </div>
       </div>`}
 
-      ${voiceStockRequest && html`<div role="dialog" aria-modal="true" aria-label="Статус складской операции"
+      ${voiceStockRequest && showVoiceStockStatus && html`<div role="dialog" aria-modal="true" aria-label="Статус складской операции"
         style=${{position:'fixed',inset:0,zIndex:10000,background:'rgba(15,23,42,.48)',display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
         <div className="card" style=${{width:'min(520px, 100%)',padding:'22px',background:'var(--surface, #fff)'}}>
           <h2 style=${{marginTop:0}}>${voiceStockRequest.status === 'SENT' ? 'Ожидается ответ сервера' : 'Результат операции неизвестен'}</h2>
           <p>${voiceStockRequest.status === 'SENT'
-            ? 'Операция отправлена. Не закрывайте это окно до ответа. Сервер должен подтвердить результат.'
+            ? 'Операция отправлена. Можно закрыть окно: результат продолжит отслеживаться.'
             : 'Ответ не получен. Операция могла быть выполнена. Не создавайте новую команду: повтор отправит тот же ключ идемпотентности.'}</p>
           ${voiceStockRequest.status === 'UNKNOWN' && html`<button className="btn btn-primary" onClick=${retryVoiceStock}>Повторить тот же запрос</button>`}
-          <button className="btn" onClick=${function(){setVoiceStockRequest(null);}}>Закрыть</button>
+          <button className="btn" onClick=${function(){setShowVoiceStockStatus(false);}}>Закрыть</button>
         </div>
       </div>`}
       ${toast && html`<div className="toast">${toast}</div>`}
