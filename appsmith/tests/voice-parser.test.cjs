@@ -46,6 +46,22 @@ assert.equal(r.product.id, 1, 'exact product name must beat partial matches');
 r = context.voiceParseCommand('Поставь молоко по 89,90 рублей', products);
 assert.equal(r.type, 'SET_PRICE');
 assert.equal(r.price, 89.9);
+for (const phrase of [
+  'Поставь молоко по 120 рублей.',
+  'Поставь молоко по 120 рублей за литр.',
+  'Поставь молоко по 120 ₽',
+  'Поставь молоко по 120₽',
+  'Поставь молоко по 120 руб.',
+  'Поставь молоко по 120 р.'
+]) {
+  r = context.voiceParseCommand(phrase, products);
+  assert.equal(r.type, 'SET_PRICE', phrase);
+  assert.equal(r.price, 120, phrase);
+}
+r = context.voiceParseCommand('Поставь молоко по 0 рублей', products);
+assert.equal(r.type, 'INVALID_PRICE', 'zero price must be rejected');
+r = context.voiceParseCommand('Поставь молоко по ноль рублей', products);
+assert.equal(r.type, 'INVALID_PRICE', 'spoken zero price must be rejected');
 
 r = context.voiceParseCommand('Поставь молоко цену 120', products);
 assert.equal(r.type, 'SET_PRICE');
