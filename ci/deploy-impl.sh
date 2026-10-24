@@ -5,8 +5,16 @@
 # который её вызывает).
 set -euo pipefail
 
+# Пилот на рынке Валентина: второй процесс того же кода (greenmarket-pilot-api,
+# :8001, /pilot/ в nginx) со своей базой greenmarket_pilot. Заведён руками
+# только на сервере — где файла нет, шаги пилота пропускаются.
+PILOT_ENV=/etc/greenmarket-pilot.env
+
 echo "=== Migrations ==="
 bash /opt/greenmarket/ci/apply-migrations.sh
+if [[ -f "$PILOT_ENV" ]]; then
+  ENV_FILE="$PILOT_ENV" bash /opt/greenmarket/ci/apply-migrations.sh
+fi
 
 echo "=== Backend ==="
 cd /opt/greenmarket/backend
@@ -20,6 +28,13 @@ sleep 2
 systemctl is-active greenmarket-api
 curl -sf localhost/health
 echo
+if [[ -f "$PILOT_ENV" ]]; then
+  systemctl restart greenmarket-pilot-api
+  sleep 2
+  systemctl is-active greenmarket-pilot-api
+  curl -sf localhost:8001/health
+  echo
+fi
 
 echo "=== seller-cabinet ==="
 cd /opt/greenmarket/seller-cabinet
